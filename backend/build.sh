@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-set -o errexit # Arrête le script si une commande échoue
+set -o errexit 
+set -o nounset 
+set -o pipefail 
 
-echo "--- Running pip install ---"
+echo "--- [BUILD SCRIPT] Running pip install ---"
 pip install -r requirements.txt
 
-echo "--- Running manage.py migrate ---"
-python manage.py migrate # Exécute les migrations en premier
+echo "--- [BUILD SCRIPT] Running manage.py migrate ---"
+python manage.py migrate # Si cette commande échoue, le "set -o errexit" devrait arrêter le script
 
-echo "--- Running manage.py collectstatic ---"
-python manage.py collectstatic --no-input --clear # --clear pour nettoyer avant
+echo "--- [BUILD SCRIPT] Running manage.py collectstatic ---"
+python manage.py collectstatic --no-input --clear 
 
-echo "--- Build script finished ---"
+echo "--- [BUILD SCRIPT] Build script finished successfully ---"
