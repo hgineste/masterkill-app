@@ -107,3 +107,29 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ]
 }
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO', # Vous pouvez essayer 'DEBUG' ici aussi si 'INFO' ne suffit pas
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'), # Garder INFO pour la prod, DEBUG pour le dev
+            'propagate': False,
+        },
+        'django.request': { # Spécifiquement pour les erreurs lors du traitement des requêtes
+            'handlers': ['console'],
+            'level': 'ERROR', # Loggue les erreurs 500
+            'propagate': False,
+        },
+    },
+}
