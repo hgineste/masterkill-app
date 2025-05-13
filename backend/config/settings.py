@@ -15,6 +15,7 @@ if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 ALLOWED_HOSTS.append('masterkill-app.onrender.com')
 
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -72,6 +73,9 @@ if DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql' and 'RENDER
     if 'OPTIONS' not in DATABASES['default']:
         DATABASES['default']['OPTIONS'] = {}
     DATABASES['default']['OPTIONS']['sslmode'] = 'require'
+
+print(f"DATABASE_URL LUE DE L'ENVIRONNEMENT: {os.environ.get('DATABASE_URL')}")
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
@@ -133,3 +137,5 @@ LOGGING = {
         },
     },
 }
+
+print(f"CONFIGURATION DATABASES FINALE: {DATABASES}")
