@@ -1,16 +1,17 @@
 <script setup>
 import { ref } from 'vue';
-import axios from 'axios';
-import { useRouter, RouterLink } from 'vue-router';
+// MODIFIÉ: Importer apiClient
+import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
+import { useRouter, RouterLink } from 'vue-router'; // RouterLink si utilisé dans le template
 import logoWarzone from '@/assets/images/logo-warzone.png';
 
 const router = useRouter();
 
 const formData = ref({
   username: '',
-  // email: '', // Champ supprimé
-  // first_name: '', // Champ supprimé
-  // last_name: '', // Champ supprimé
+  // email: '', // Conservé commenté car vous avez simplifié pour username/password uniquement
+  // first_name: '',
+  // last_name: '',
   password: '',
   password_confirm: '',
 });
@@ -30,7 +31,7 @@ async function handleRegister() {
     return;
   }
 
-  if (!formData.value.username || !formData.value.password) { // On ne vérifie plus l'email ici
+  if (!formData.value.username || !formData.value.password) {
     errorMessage.value = "Nom d'utilisateur et mot de passe sont requis.";
     isLoading.value = false;
     return;
@@ -41,13 +42,19 @@ async function handleRegister() {
       username: formData.value.username,
       password: formData.value.password,
       password_confirm: formData.value.password_confirm,
-      // On n'envoie plus email, first_name, last_name
+      // Si votre UserRegistrationSerializer backend s'attend à plus de champs (comme email, first_name)
+      // et que vous voulez les collecter à nouveau, décommentez-les ici et dans formData.
+      // email: formData.value.email, 
+      // first_name: formData.value.first_name,
+      // last_name: formData.value.last_name,
     };
-
-    await axios.post('http://localhost:8000/api/auth/register/', payload); // L'URL reste la même
+    
+    // MODIFIÉ: Utiliser apiClient et une URL relative
+    await apiClient.post('/auth/register/', payload);
 
     successMessage.value = "Compte créé avec succès ! Vous pouvez maintenant vous connecter.";
-    formData.value = { username: '', password: '', password_confirm: '' }; // Vider les champs restants
+    // Réinitialiser uniquement les champs utilisés pour la création simplifiée
+    formData.value = { username: '', password: '', password_confirm: '', email: '', first_name: '', last_name: '' };
     
     setTimeout(() => {
       router.push({ name: 'login' });

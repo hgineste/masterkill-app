@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
+// MODIFIÉ: Importer apiClient
+import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
 import { useRouter } from 'vue-router';
 import logoWarzone from '@/assets/images/logo-warzone.png';
 
@@ -17,7 +18,7 @@ const newMK = ref({
   points_execution: 1,
   points_humiliation: -1,
   top1_solo_ends_mk: false,
-  selected_gage_text: '', // Ce champ est utilisé par le v-model du formulaire
+  selected_gage_text: '',
 });
 const createError = ref(null);
 
@@ -59,14 +60,12 @@ async function handleCreateMasterkill() {
     points_humiliation: parseInt(newMK.value.points_humiliation) || 0,
     top1_solo_ends_mk: newMK.value.top1_solo_ends_mk,
     participant_gamertags: validPlayerNames,
-    // MODIFIÉ : La clé pour le backend est 'custom_gage_input_text'
     custom_gage_input_text: newMK.value.selected_gage_text.trim() === '' ? null : newMK.value.selected_gage_text.trim(),
   };
 
   try {
-    // Le backend (MasterkillEventSerializer) doit s'attendre à 'custom_gage_input_text'
-    const response = await axios.post('http://localhost:8000/api/masterkillevents/', payload);
-    // Rediriger vers la page de détail du MK nouvellement créé
+    // MODIFIÉ: Utiliser apiClient et une URL relative
+    const response = await apiClient.post('/masterkillevents/', payload);
     router.push({ name: 'masterkill-detail', params: { id: response.data.id } });
   } catch (err) {
     console.error("Erreur lors de la création du MK:", err);

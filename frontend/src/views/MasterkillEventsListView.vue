@@ -1,25 +1,25 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
-import axios from 'axios';
-import { RouterLink } from 'vue-router';
+// MODIFIÉ: Importer apiClient au lieu d'axios directement
+import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
+import { RouterLink } from 'vue-router'; // RouterLink est pour le template, pas directement utilisé dans ce script setup pour les appels API
 import logoWarzone from '@/assets/images/logo-warzone.png';
 
 const allMasterkillEvents = ref([]);
 const isLoading = ref(true);
 const error = ref(null);
-const activeTab = ref('active'); // 'active' ou 'history'
+const activeTab = ref('active');
 
 async function fetchMasterkillEvents() {
   isLoading.value = true;
   error.value = null;
   try {
-    // NOTE API: Le backend (/api/masterkillevents/) doit fournir pour chaque MK de la liste :
-    // 'completed_games_count', 'winner_details.gamertag', 'creator_details.gamertag' (recommandé),
-    // ainsi que id, name, status, num_games_planned, created_at, ended_at, etc., pour un affichage complet.
-    const response = await axios.get('http://localhost:8000/api/masterkillevents/');
+    // NOTE API (toujours valide) : Le backend doit fournir les champs nécessaires.
+    // MODIFIÉ: Utiliser apiClient et une URL relative
+    const response = await apiClient.get('/masterkillevents/');
     allMasterkillEvents.value = response.data;
   } catch (err) {
-    console.error("Erreur chargement liste MK:", err); // Log d'erreur utile pour débogage
+    console.error("Erreur chargement liste MK:", err);
     error.value = "Impossible de charger les Événements Masterkill.";
   } finally {
     isLoading.value = false;

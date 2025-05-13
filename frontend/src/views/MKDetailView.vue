@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import axios from 'axios';
+// MODIFIÉ: Importer apiClient
+import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
 import logoWarzone from '@/assets/images/logo-warzone.png';
 
 const route = useRoute();
@@ -26,7 +27,6 @@ const gulagOptions = ref([
   { value: 'lost', text: 'Perdu' },
 ]);
 
-// Watchers for resetting stats or logging changes
 watch(activeGame, (newVal, oldVal) => {
   if ((newVal && newVal.id && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
      if (!oldVal || newVal.id !== oldVal.id || (newVal.status === 'pending' && oldVal.status !== 'pending') || (newVal.status === 'inprogress' && oldVal.status !== 'inprogress') || !newVal ) {
@@ -35,17 +35,16 @@ watch(activeGame, (newVal, oldVal) => {
   }
 }, { deep: true });
 
-watch(() => masterkillEvent.value?.status, (newStatus, oldStatus) => {
-  // console.log(`[WATCH] MK Status CHANGED from: ${oldStatus} to: ${newStatus}`);
-});
+// watch(() => masterkillEvent.value?.status, (newStatus, oldStatus) => {
+// });
 
-// --- Data Fetching ---
 async function fetchAggregatedStats() {
   if (!masterkillEvent.value || masterkillEvent.value.status === 'pending') {
     mkAggregatedStats.value = []; return;
   }
   try {
-    const response = await axios.get(`http://localhost:8000/api/masterkillevents/${mkId.value}/aggregated-stats/`);
+    // MODIFIÉ: Utiliser apiClient et URL relative
+    const response = await apiClient.get(`/masterkillevents/${mkId.value}/aggregated-stats/`);
     mkAggregatedStats.value = response.data || [];
   } catch (err) {
     console.error("Erreur fetch stats agrégées:", err);
@@ -58,12 +57,12 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
   let initialActiveGameId = activeGame.value?.id;
   let initialActiveGameStatus = activeGame.value?.status;
   try {
-    const response = await axios.get(`http://localhost:8000/api/masterkillevents/${mkId.value}/`);
+    // MODIFIÉ: Utiliser apiClient et URL relative
+    const response = await apiClient.get(`/masterkillevents/${mkId.value}/`);
     masterkillEvent.value = response.data;
 
     const gameInfoFromServer = masterkillEvent.value.current_game_info;
 
-    // Determine current active game logic
     if (gameInfoFromServer && (gameInfoFromServer.id || gameInfoFromServer.status === 'pending')) {
       activeGame.value = gameInfoFromServer;
     } else if (masterkillEvent.value.status === 'pending') {
@@ -79,14 +78,12 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
       activeGame.value = null;
     }
 
-    // Fetch aggregated stats if MK is not pending
     if (masterkillEvent.value.status !== 'pending') {
       await fetchAggregatedStats();
     } else {
       mkAggregatedStats.value = [];
     }
 
-    // Conditionally reset local stats
      if (resetStatsIfNeeded) {
        const gameChanged = !activeGame.value || activeGame.value.id !== initialActiveGameId || (activeGame.value.id === initialActiveGameId && activeGame.value.status === 'pending' && initialActiveGameStatus !== 'pending');
        const isNewGameScenario = gameChanged && (activeGame.value?.status !== 'inprogress' || !initialActiveGameId || activeGame.value.id !== initialActiveGameId);
@@ -94,14 +91,12 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
            initializeCurrentGameStats();
        }
      }
-
   } catch (err) {
     error.value = `Impossible de charger détails MK ${mkId.value}.`;
     if (err.response?.status === 404) error.value = `MK ${mkId.value} non trouvé.`;
   } finally { isLoading.value = false; }
 }
 
-// --- Stat Management ---
 function initializeCurrentGameStats() {
   if (masterkillEvent.value?.participants_details) {
     const stats = {};
@@ -135,12 +130,12 @@ function toggleRageQuit(playerId) {
   }
 }
 
-// --- MK & Game Actions ---
 async function startOrManageGame(actionToDo = 'start_next_game') {
   if (!masterkillEvent.value) return;
   isLoading.value = true;
   try {
-    const response = await axios.post(`http://localhost:8000/api/masterkillevents/${mkId.value}/manage_game/`, { action: actionToDo });
+    // MODIFIÉ: Utiliser apiClient et URL relative
+    const response = await apiClient.post(`/masterkillevents/${mkId.value}/manage_game/`, { action: actionToDo });
     activeGame.value = response.data;
     if (masterkillEvent.value.status === 'pending' && activeGame.value?.status === 'inprogress') {
       masterkillEvent.value.status = 'inprogress';
@@ -158,12 +153,12 @@ async function handleMKStatusChange(newStatus) {
   if (!masterkillEvent.value) return;
   isLoading.value = true;
   try {
-    await axios.patch(`http://localhost:8000/api/masterkillevents/${masterkillEvent.value.id}/`, { status: newStatus });
+    // MODIFIÉ: Utiliser apiClient et URL relative
+    await apiClient.patch(`/masterkillevents/${masterkillEvent.value.id}/`, { status: newStatus });
     await fetchMKDetails(newStatus === 'pending');
-    // No redirect needed if this view shows results for 'completed' status
-    // if (newStatus === 'completed' && masterkillEvent.value?.status === 'completed') {
-    //   router.push({ name: 'masterkill-results', params: { id: mkId.value } });
-    // }
+    if (newStatus === 'completed' && masterkillEvent.value?.status === 'completed') {
+      router.push({ name: 'masterkill-results', params: { id: mkId.value } });
+    }
   } catch (err) {
     alert(`Erreur màj statut MK: ${err.message}`);
     await fetchMKDetails(false);
@@ -189,7 +184,8 @@ async function logRedeployEvent() {
   const payload = { game: activeGame.value.id, redeployer_player: redeployData.value.redeployer_player_id, redeployed_player: redeployData.value.redeployed_player_id };
   try {
     isLoading.value = true;
-    await axios.post('http://localhost:8000/api/redeployevents/', payload);
+    // MODIFIÉ: Utiliser apiClient et URL relative (endpoint pour redeployevents)
+    await apiClient.post('/redeployevents/', payload);
     const redeployedPlayerId = payload.redeployed_player;
     if (currentGameStats.value[redeployedPlayerId]) {
       currentGameStats.value[redeployedPlayerId].times_redeployed_by_teammate = (currentGameStats.value[redeployedPlayerId].times_redeployed_by_teammate || 0) + 1;
@@ -225,14 +221,16 @@ async function handleEndGame() {
   });
   isLoading.value = true;
   try {
-    const response = await axios.post(
-      `http://localhost:8000/api/games/${activeGame.value.id}/complete/`,
+    // MODIFIÉ: Utiliser apiClient et URL relative
+    const response = await apiClient.post(
+      `/games/${activeGame.value.id}/complete/`,
       { player_stats: playerStatsPayloadList }
     );
     alert(response.data.message || "Partie terminée!");
 
     if (response.data.mk_ended || response.data.mk_status === 'completed') {
-      await fetchMKDetails(false);
+      await fetchMKDetails(false); // Re-fetch pour avoir le statut final et le vainqueur
+      router.push({ name: 'masterkill-results', params: { id: mkId.value } });
     } else {
       await fetchMKDetails(true);
     }
@@ -246,7 +244,6 @@ async function handleEndGame() {
 
 onMounted(() => { fetchMKDetails(); });
 
-// --- Computed Properties ---
 const canStartCurrentPendingGame = computed(() => masterkillEvent.value && (masterkillEvent.value.status === 'pending' || masterkillEvent.value.status === 'inprogress') && activeGame.value?.status === 'pending');
 const canPauseMK = computed(() => masterkillEvent.value?.status === 'inprogress' && activeGame.value?.status === 'inprogress');
 const canResumeMK = computed(() => masterkillEvent.value?.status === 'paused');
@@ -297,18 +294,15 @@ const rankedPlayerScoresSoFar = computed(() => {
     }));
 });
 
-// Frontend fallback/determination for winner display. Prefers backend data.
 const determinedWinnerGamertag = computed(() => {
   if (masterkillEvent.value?.winner_details?.gamertag) {
     return masterkillEvent.value.winner_details.gamertag;
   }
   if (masterkillEvent.value?.status === 'completed' && rankedPlayerScoresSoFar.value.length > 0) {
-    // console.log("Utilisation du fallback frontend pour vainqueur. Vérifier API /aggregated-stats/ si inattendu.");
     return rankedPlayerScoresSoFar.value[0].gamertag;
   }
   return 'Non déterminé';
 });
-
 </script>
 
 <template>

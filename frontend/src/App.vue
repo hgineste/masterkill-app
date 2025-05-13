@@ -1,27 +1,24 @@
 <script setup>
-import { RouterLink, RouterView, useRouter } from 'vue-router'; // Ajout de useRouter
-import { computed, watch } from 'vue'; // Ajout de watch si vous voulez réagir aux changements de route pour la nav
-import axios from 'axios'; // Si logout est ici
+import { RouterLink, RouterView, useRouter } from 'vue-router';
+import { computed } from 'vue'; // 'watch' n'est pas utilisé dans ce snippet, donc retiré pour l'instant
+// MODIFIÉ: axios n'est plus directement nécessaire ici pour la déconnexion si tout passe par apiClient
+// import axios from 'axios'; 
 
 const router = useRouter();
 
-// Logique pour afficher/cacher les liens de navigation basée sur l'authentification
-// Cela suppose que vous mettez à jour 'authToken' dans localStorage lors du login/logout
-// Pour une réactivité parfaite, un store (Pinia) serait mieux.
 const isAuthenticated = computed(() => !!localStorage.getItem('authToken'));
-
-// Si vous voulez forcer une réévaluation de isAuthenticated lorsque la route change
-// (utile si le token peut être modifié par d'autres actions sans rechargement de page complet)
-// Cette partie est optionnelle et dépend de comment vous gérez l'état global.
-// Pour l'instant, le computed se base sur localStorage au moment du rendu.
 
 function handleLogout() {
   localStorage.removeItem('authToken');
-  localStorage.removeItem('userData'); // N'oubliez pas de supprimer aussi les données utilisateur
-  delete axios.defaults.headers.common['Authorization'];
-  // Forcer le composant à se ré-évaluer ou utiliser un store pour la réactivité
+  localStorage.removeItem('userData'); // C'est bien de supprimer aussi les données utilisateur
+
+  // MODIFIÉ: Cette ligne n'est plus nécessaire si tous les appels API passent par apiClient et son intercepteur.
+  // L'intercepteur ne trouvera plus de token dans localStorage et n'ajoutera donc plus l'en-tête.
+  // delete axios.defaults.headers.common['Authorization']; 
+
   router.push({ name: 'login' }).then(() => {
-    // Optionnel : forcer un rechargement si la réactivité de la nav n'est pas immédiate
+    // Optionnel: forcer un rechargement peut aider à réinitialiser certains états
+    // ou s'assurer que la garde de navigation est correctement réévaluée.
     // window.location.reload(); 
   });
 }

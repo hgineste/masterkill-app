@@ -1,12 +1,10 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'; // watch est optionnel, mais utile pour le débogage
-import { useRoute, RouterLink } from 'vue-router'; // RouterLink si utilisé dans votre template pour cette vue
-import axios from 'axios';
+import { ref, onMounted, computed, watch } from 'vue';
+import { useRoute, RouterLink } from 'vue-router';
+// MODIFIÉ: Importer apiClient
+import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
 
-// Import du logo principal (si utilisé dans le template de cette vue)
-import logoWarzone from '@/assets/images/logo-warzone.png'; 
-
-// Imports des images pour les critères du rouleau bonus
+import logoWarzone from '@/assets/images/logo-warzone.png';
 import killImage from '@/assets/images/kill-image.png';
 import reaImage from '@/assets/images/rea-image.png';
 import goulagImage from '@/assets/images/goulag-image.png';
@@ -18,37 +16,36 @@ import {
   CategoryScale, LinearScale, PointElement, Filler
 } from 'chart.js';
 
-const allLinesDrawn = ref(false); // Crucial : Déclaration de la variable réactive
+const allLinesDrawn = ref(false);
 const chartInstanceRef = ref(null);
 
 const labelOnLineEndPlugin = {
   id: 'labelOnLineEnd',
   afterDatasetsDraw(chart) {
-    if (!allLinesDrawn.value) return; 
-    const { ctx, data, chartArea } = chart; // chartArea ajouté
-    if (!chartArea) return; // Quitter si chartArea n'est pas encore défini
+    if (!allLinesDrawn.value) return;
+    const { ctx, data, chartArea } = chart;
+    if (!chartArea) return;
     ctx.save();
-    const yPositionsOccupied = {}; 
+    const yPositionsOccupied = {};
 
     data.datasets.forEach((dataset, i) => {
       const meta = chart.getDatasetMeta(i);
       if (meta.data.length > 0) {
         const lastPoint = meta.data[meta.data.length - 1];
-        const x = lastPoint.x + 10; 
-        let yPos = Math.round(lastPoint.y);     
+        const x = lastPoint.x + 10;
+        let yPos = Math.round(lastPoint.y);
         const fontSize = 11;
         ctx.font = `bold ${fontSize}px "Roboto Condensed", Arial, sans-serif`;
         ctx.fillStyle = dataset.borderColor || 'white';
-        ctx.textAlign = 'left'; 
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         let attempt = 0;
-        // Logique simplifiée pour éviter les erreurs, mais peut causer des superpositions
         while(yPositionsOccupied[yPos] && Math.abs(yPositionsOccupied[yPos] - x) < 10 && attempt < 10) {
             yPos += (i % 2 === 0 ? fontSize : -fontSize);
             attempt++;
         }
         yPositionsOccupied[yPos] = x;
-        
+
         if (yPos < chartArea.top + fontSize / 2) yPos = chartArea.top + fontSize / 2;
         if (yPos > chartArea.bottom - fontSize / 2) yPos = chartArea.bottom - fontSize / 2;
 
@@ -93,9 +90,9 @@ const finalReel2Value = ref(null);
 const finalReel3Value = ref(null);
 const isSpinning = ref(false);
 const bonusAwardLogEntry = ref(null);
-const bonusAwarded = ref(false); 
+const bonusAwarded = ref(false);
 
-const gameByGameScoresData = ref(null); 
+const gameByGameScoresData = ref(null);
 const isLoadingGraphData = ref(false);
 const chartLabels = ref([]);
 const chartDatasets = ref([]);
@@ -104,14 +101,14 @@ const chartData = computed(() => ({ labels: chartLabels.value, datasets: chartDa
 const chartOptions = ref({
   responsive: true, maintainAspectRatio: false, tension: 0.4,
   animation: { duration: 1000, easing: 'easeInOutQuad' },
-  scales: { 
-    y: { beginAtZero: true, ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } }, 
-    x: { ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } } 
+  scales: {
+    y: { beginAtZero: true, ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } },
+    x: { ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } }
   },
-  plugins: { 
+  plugins: {
     legend: { display: false },
     tooltip: { titleFont: { weight: 'bold'}, bodyFont: {size: 14} },
-    labelOnLineEnd: {} 
+    labelOnLineEnd: {}
   }
 });
 
@@ -136,9 +133,9 @@ async function awardSingleBonus() {
     allBonusesProcessedActions(); return;
   }
   startAllReelSpinEffects();
-  const reel1StopTime = Math.random() * 2000 + 4000; 
-  const reel2StopTime = reel1StopTime + Math.random() * 1500 + 3000; 
-  const reel3StopTime = reel2StopTime + Math.random() * 1500 + 2500; 
+  const reel1StopTime = Math.random() * 2000 + 4000;
+  const reel2StopTime = reel1StopTime + Math.random() * 1500 + 3000;
+  const reel3StopTime = reel2StopTime + Math.random() * 1500 + 2500;
 
   setTimeout(() => {
     const randomIndex1 = Math.floor(Math.random() * reel1Items.value.length);
@@ -157,7 +154,7 @@ async function awardSingleBonus() {
   }, reel2StopTime);
 
   setTimeout(() => {
-    stopReelEffect(2, {text: '...'}, reel3Display, item => item); 
+    stopReelEffect(2, {text: '...'}, reel3Display, item => item);
     isSpinning.value = false;
     if (!finalReel1Value.value || !finalReel2Value.value) { finalReel3Value.value = { gamertag: "Erreur" }; allBonusesProcessedActions(); return; }
     let targetValue = (finalReel2Value.value.modifier === 'max') ? -Infinity : Infinity;
@@ -195,14 +192,17 @@ function allBonusesProcessedActions() {
 }
 
 async function fetchDataAndInitBonuses() {
-  isLoadingMKDetails.value = true; isLoadingAggregatedStats.value = true; 
+  isLoadingMKDetails.value = true; isLoadingAggregatedStats.value = true;
   error.value = null; bonusAwarded.value = false; bonusAwardLogEntry.value = null; allLinesDrawn.value = false;
   try {
-    const mkPromise = axios.get(`http://localhost:8000/api/masterkillevents/${mkId.value}/`);
-    const statsPromise = axios.get(`http://localhost:8000/api/masterkillevents/${mkId.value}/aggregated-stats/`);
+    // MODIFIÉ: Utiliser apiClient et des URLs relatives
+    const mkPromise = apiClient.get(`/masterkillevents/${mkId.value}/`);
+    const statsPromise = apiClient.get(`/masterkillevents/${mkId.value}/aggregated-stats/`);
     const [mkResponse, statsResponse] = await Promise.all([mkPromise, statsPromise]);
+    
     masterkillEvent.value = mkResponse.data; isLoadingMKDetails.value = false;
     aggregatedStats.value = statsResponse.data; isLoadingAggregatedStats.value = false;
+    
     if (aggregatedStats.value) {
       aggregatedStats.value.forEach(pStat => {
         finalScores.value[pStat.player.id.toString()] = pStat.total_score_from_games || 0;
@@ -216,17 +216,18 @@ async function fetchDataAndInitBonuses() {
 async function fetchGameByGameScoresForChart() {
   if (!masterkillEvent.value) return;
   if (!(masterkillEvent.value.status === 'completed' && bonusAwarded.value)) {
-    allLinesDrawn.value = true; // Si on n'affiche pas le graph, on considère les lignes "dessinées" pour afficher le reste
+    allLinesDrawn.value = true;
     return;
   }
   isLoadingGraphData.value = true; allLinesDrawn.value = false;
   try {
-    const response = await axios.get(`http://localhost:8000/api/masterkillevents/${mkId.value}/game-scores/`);
-    gameByGameScoresData.value = response.data; 
+    // MODIFIÉ: Utiliser apiClient et une URL relative
+    const response = await apiClient.get(`/masterkillevents/${mkId.value}/game-scores/`);
+    gameByGameScoresData.value = response.data;
     if (gameByGameScoresData.value?.player_scores_per_game) {
         prepareChartDataForAnimation();
     } else { chartLabels.value = []; chartDatasets.value = []; allLinesDrawn.value = true; }
-  } catch (err) { console.error("Erreur fetch scores par partie:", err); allLinesDrawn.value = true; } 
+  } catch (err) { console.error("Erreur fetch scores par partie:", err); allLinesDrawn.value = true; }
   finally { isLoadingGraphData.value = false; }
 }
 
@@ -242,14 +243,14 @@ function prepareChartDataForAnimation() {
 
   chartDatasets.value = participantDetailsForChart.map(player => {
     const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
-    return { 
-      label: player.gamertag, data: [0], borderColor: `rgb(${r},${g},${b})`, 
+    return {
+      label: player.gamertag, data: [0], borderColor: `rgb(${r},${g},${b})`,
       backgroundColor: `rgba(${r},${g},${b},0.15)`, tension: 0.4, fill: 'origin',
       pointRadius: 5, pointBackgroundColor: `rgb(${r},${g},${b})`,
       pointHoverRadius: 7, pointHoverBorderWidth: 2, borderWidth: 3,
     };
   });
-  chartLabels.value = ["Début"]; 
+  chartLabels.value = ["Début"];
 
   let gameIndexToDisplay = 0;
   function addNextDataPoint() {
@@ -258,7 +259,7 @@ function prepareChartDataForAnimation() {
       chartDatasets.value = chartDatasets.value.map((dataset) => {
         const originalPlayer = participantDetailsForChart.find(p => p.gamertag === dataset.label);
         let currentDataArray = [...dataset.data];
-        let nextScore = currentDataArray[currentDataArray.length - 1]; 
+        let nextScore = currentDataArray[currentDataArray.length - 1];
         if (originalPlayer && scoresPerGameFromAPI[originalPlayer.id.toString()] && scoresPerGameFromAPI[originalPlayer.id.toString()].length > gameIndexToDisplay) {
           nextScore = scoresPerGameFromAPI[originalPlayer.id.toString()][gameIndexToDisplay];
         }
@@ -267,39 +268,37 @@ function prepareChartDataForAnimation() {
       });
       gameIndexToDisplay++;
       if (gameIndexToDisplay < numGamesForChart) {
-        setTimeout(addNextDataPoint, 1600); 
+        setTimeout(addNextDataPoint, 1600);
       } else {
-        addFinalBonusPointToChart(); 
+        addFinalBonusPointToChart();
       }
-    } else { 
-        addFinalBonusPointToChart(); 
+    } else {
+        addFinalBonusPointToChart();
     }
   }
-  if (numGamesForChart > 0) setTimeout(addNextDataPoint, 700); 
+  if (numGamesForChart > 0) setTimeout(addNextDataPoint, 700);
   else addFinalBonusPointToChart();
 }
 
 function addFinalBonusPointToChart() {
   const finalLabel = "Score Final";
-  // S'assurer de ne pas ajouter le label plusieurs fois si la fonction est appelée de manière inattendue
   if (chartLabels.value.length > 0 && chartLabels.value[chartLabels.value.length -1] !== finalLabel) {
       chartLabels.value = [...chartLabels.value, finalLabel];
-  } else if (chartLabels.value.length === 0) { // Cas où il n'y a pas de jeux mais on veut quand même le point final
+  } else if (chartLabels.value.length === 0) {
       chartLabels.value = ["Début", finalLabel];
   }
 
   chartDatasets.value = chartDatasets.value.map(dataset => {
     const originalPlayer = (gameByGameScoresData.value?.participants || masterkillEvent.value?.participants_details || []).find(p => p.gamertag === dataset.label);
-    let finalScoreWithBonus = dataset.data.length > 0 ? dataset.data[dataset.data.length - 1] : 0; 
+    let finalScoreWithBonus = dataset.data.length > 0 ? dataset.data[dataset.data.length - 1] : 0;
     if (originalPlayer && finalScores.value[originalPlayer.id.toString()] !== undefined) {
       finalScoreWithBonus = finalScores.value[originalPlayer.id.toString()];
     }
     let newDataArray = [...dataset.data];
-    // Si le dernier label est "Score Final", on met à jour ce point, sinon on l'ajoute.
     if (chartLabels.value[chartLabels.value.length - 1] === finalLabel) {
-        if (newDataArray.length === chartLabels.value.length -1) { // On ajoute le point "Score Final"
+        if (newDataArray.length === chartLabels.value.length -1) {
             newDataArray.push(finalScoreWithBonus);
-        } else if (newDataArray.length === chartLabels.value.length) { // On met à jour le point "Score Final"
+        } else if (newDataArray.length === chartLabels.value.length) {
             newDataArray[newDataArray.length - 1] = finalScoreWithBonus;
         }
     }
@@ -309,9 +308,9 @@ function addFinalBonusPointToChart() {
   setTimeout(() => {
     allLinesDrawn.value = true;
     if (chartInstanceRef.value?.chart) {
-        chartInstanceRef.value.chart.update('none'); 
+        chartInstanceRef.value.chart.update('none');
     }
-  }, chartOptions.value.animation.duration + 100); // Léger délai après l'animation du dernier point
+  }, chartOptions.value.animation.duration + 100);
 }
 
 const rankedPlayers = computed(() => {

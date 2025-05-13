@@ -1,8 +1,9 @@
 <script setup>
 import { ref } from 'vue';
-import axios from 'axios';
+// MODIFIÉ: Importer apiClient
+import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
 import { useRouter } from 'vue-router';
-import logoWarzone from '@/assets/images/logo-warzone.png'; // Ajustez le chemin si nécessaire
+import logoWarzone from '@/assets/images/logo-warzone.png';
 
 const router = useRouter();
 
@@ -15,27 +16,24 @@ async function handleLogin() {
   isLoading.value = true;
   errorMessage.value = null;
   try {
-    const loginResponse = await axios.post('http://localhost:8000/api/auth/login/', {
+    // MODIFIÉ: Utiliser apiClient et URL relative
+    const loginResponse = await apiClient.post('/auth/login/', {
       username: username.value,
       password: password.value,
     });
 
     if (loginResponse.data.token) {
       localStorage.setItem('authToken', loginResponse.data.token);
-      axios.defaults.headers.common['Authorization'] = `Token ${loginResponse.data.token}`;
+      // La ligne suivante n'est PLUS NÉCESSAIRE car l'intercepteur dans apiClient.js s'en charge :
+      // axios.defaults.headers.common['Authorization'] = `Token ${loginResponse.data.token}`;
 
       try {
-        // Après avoir obtenu le token, récupérez les détails de l'utilisateur
-        const userDetailsResponse = await axios.get('http://localhost:8000/api/users/me/');
+        // MODIFIÉ: Utiliser apiClient et URL relative
+        const userDetailsResponse = await apiClient.get('/users/me/');
         localStorage.setItem('userData', JSON.stringify(userDetailsResponse.data));
-        // Ici, vous mettriez à jour votre store Pinia/Vuex avec les infos utilisateur et l'état authentifié
       } catch (userError) {
         console.error("Erreur lors de la récupération des détails utilisateur:", userError);
-        // Gérer l'erreur de récupération des détails utilisateur, mais l'utilisateur est techniquement connecté
-        // Vous pourriez choisir de vider le token ici si les détails utilisateur sont cruciaux
-        // ou informer l'utilisateur d'un problème partiel.
-        // Pour l'instant, on continue en supposant que le token est la partie la plus importante.
-        localStorage.removeItem('userData'); // S'assurer qu'aucune donnée utilisateur obsolète n'est présente
+        localStorage.removeItem('userData');
       }
       
       router.push({ name: 'home' });
@@ -51,10 +49,10 @@ async function handleLogin() {
       errorMessage.value = "Erreur de connexion. Veuillez réessayer.";
     }
     console.error("Erreur de connexion:", error);
-    // Nettoyer en cas d'échec de connexion
     localStorage.removeItem('authToken');
     localStorage.removeItem('userData');
-    delete axios.defaults.headers.common['Authorization'];
+    // La ligne suivante n'est PLUS NÉCESSAIRE car l'intercepteur ne trouvera pas de token :
+    // delete axios.defaults.headers.common['Authorization'];
   } finally {
     isLoading.value = false;
   }

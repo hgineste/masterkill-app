@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
-import logoWarzone from '@/assets/images/logo-warzone.png';
+// MODIFIÉ: Importer apiClient
+import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
+import logoWarzone from '@/assets/images/logo-warzone.png'; // Si utilisé dans le template de cette vue
 
 const gages = ref([]);
 const isLoading = ref(true);
@@ -9,7 +10,8 @@ const error = ref(null);
 
 onMounted(async () => {
   try {
-    const response = await axios.get('http://localhost:8000/api/gages/');
+    // MODIFIÉ: Utiliser apiClient et une URL relative
+    const response = await apiClient.get('/gages/');
     gages.value = response.data;
   } catch (err) {
     console.error("Erreur lors de la récupération des gages:", err);

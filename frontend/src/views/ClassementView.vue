@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
-import logoWarzone from '@/assets/images/logo-warzone.png';
+// MODIFIÉ: Importer apiClient
+import apiClient from '@/services/apiClient'; // Assurez-vous que le chemin est correct
+import logoWarzone from '@/assets/images/logo-warzone.png'; // Si utilisé dans le template de cette vue
 
 const allRankingsData = ref({});
 const isLoading = ref(true);
@@ -15,15 +16,15 @@ const statsList = ref([
     { key: 'mks_won', label: 'MKs' },
     { key: 'total_assists', label: 'Assists' },
     { key: 'total_gulag_wins', label: 'Goulags' },
-    // Ajoutez d'autres statistiques ici si nécessaire
 ]);
-const sortCriteria = ref({}); // Garde une trace du critère de tri et de l'ordre pour chaque stat
+const sortCriteria = ref({});
 
 async function fetchAllRankings() {
     isLoading.value = true;
     error.value = null;
     try {
-        const response = await axios.get('http://localhost:8000/api/rankings/all-time/');
+        // MODIFIÉ: Utiliser apiClient et une URL relative
+        const response = await apiClient.get('/rankings/all-time/');
         const players = response.data;
         const rankingsByStat = {};
 
@@ -38,8 +39,7 @@ async function fetchAllRankings() {
                 let comparison = 0;
                 if (valA > valB) comparison = 1;
                 else if (valA < valB) comparison = -1;
-
-                // Ordre par défaut (décroissant pour la plupart, croissant pour d'autres si logique)
+                
                 const defaultDesc = ['total_score', 'total_kills', 'kd_ratio', 'games_played', 'mks_won'].includes(stat.key);
                 return defaultDesc ? comparison * -1 : comparison;
             }).map((player, index) => ({ ...player, rank: index + 1 }));
