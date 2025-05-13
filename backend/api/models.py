@@ -1,10 +1,8 @@
 from django.db import models
-from django.contrib.auth.models import User # Pour lier certains éléments aux utilisateurs Django
+from django.contrib.auth.models import User
 
 class Player(models.Model):
     gamertag = models.CharField(max_length=100, unique=True, verbose_name="Pseudo du joueur")
-    # Si vous voulez lier un joueur à un compte utilisateur Django (optionnel pour l'instant)
-    # user_account = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="player_profile")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
 
     def __str__(self):
@@ -13,11 +11,10 @@ class Player(models.Model):
     class Meta:
         verbose_name = "Joueur"
         verbose_name_plural = "Joueurs"
+        ordering = ['gamertag']
 
 class Gage(models.Model):
     text = models.CharField(max_length=255, unique=True, verbose_name="Texte du gage")
-    # Pourrait être utile de savoir si le gage a été ajouté par un admin ou un utilisateur plus tard
-    # is_custom = models.BooleanField(default=False, verbose_name="Gage personnalisé")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
 
     def __str__(self):
@@ -26,47 +23,126 @@ class Gage(models.Model):
     class Meta:
         verbose_name = "Gage"
         verbose_name_plural = "Gages"
+        ordering = ['text']
 
 class MasterkillEvent(models.Model):
     name = models.CharField(max_length=150, default="Nouveau Masterkill", verbose_name="Nom du Masterkill")
-    # L'utilisateur Django qui a créé cet événement MK
     creator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_masterkills", verbose_name="Créateur")
-
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
     effective_start_at = models.DateTimeField(null=True, blank=True, verbose_name="Début effectif")
     ended_at = models.DateTimeField(null=True, blank=True, verbose_name="Fin")
-
-    # --- Paramètres du Masterkill ---
+    
     points_kill = models.IntegerField(default=1, verbose_name="Points par Kill")
     points_rea = models.IntegerField(default=1, verbose_name="Points par Réanimation")
-    points_redeploiement = models.IntegerField(default=-1, verbose_name="Points par Redéploiement utilisé")
+    points_redeploiement = models.IntegerField(default=-1, verbose_name="Points par Redéploiement")
     points_goulag_win = models.IntegerField(default=1, verbose_name="Points par Goulag gagné")
     points_rage_quit = models.IntegerField(default=-5, verbose_name="Points par Rage Quit")
     points_execution = models.IntegerField(default=1, verbose_name="Points par Exécution")
     points_humiliation = models.IntegerField(default=-1, verbose_name="Points par Humiliation subie")
-
+    
     num_games_planned = models.PositiveIntegerField(default=3, verbose_name="Nombre de parties prévues")
-    top1_solo_ends_mk = models.BooleanField(default=False, help_text="Un Top 1 solo met-il fin au Masterkill ?", verbose_name="Top 1 Solo termine le MK")
+    top1_solo_ends_mk = models.BooleanField(default=False, help_text="Un Top 1 solo met fin au MK ?", verbose_name="Top 1 Solo termine le MK")
     selected_gage = models.ForeignKey(Gage, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Gage sélectionné")
-
+    
     STATUS_CHOICES = [
-        ('pending', 'En attente de démarrage'),
+        ('pending', 'En attente'),
         ('inprogress', 'En cours'),
+        ('paused', 'En Pause'),
         ('completed', 'Terminé'),
         ('cancelled', 'Annulé'),
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name="Statut")
-
-    # --- Participants et Vainqueur ---
-    # Les joueurs qui participent à cet événement MK.
-    # Un joueur peut participer à plusieurs MK, et un MK a plusieurs joueurs.
+    
     participants = models.ManyToManyField(Player, related_name="masterkill_events_participated", blank=True, verbose_name="Participants")
     winner = models.ForeignKey(Player, on_delete=models.SET_NULL, null=True, blank=True, related_name="masterkills_won", verbose_name="Vainqueur")
 
     def __str__(self):
-        return f"MK: {self.name} (Statut: {self.get_status_display()})" # get_status_display() est sympa pour afficher la valeur lisible du choix
+        return f"MK: {self.name} ({self.get_status_display()})"
 
     class Meta:
         verbose_name = "Événement Masterkill"
         verbose_name_plural = "Événements Masterkill"
-        ordering = ['-created_at'] # Ordonner par date de création, du plus récent au plus ancien
+        ordering = ['-created_at']
+
+class Game(models.Model):
+    masterkill_event = models.ForeignKey(MasterkillEvent, related_name='games', on_delete=models.CASCADE, verbose_name="Événement Masterkill")
+    game_number = models.PositiveIntegerField(verbose_name="Numéro de la partie")
+    STATUS_CHOICES = [
+        ('pending', 'En attente'),
+        ('inprogress', 'En cours'),
+        ('completed', 'Terminée'),
+    ]
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='pending', verbose_name="Statut de la partie")
+    start_time = models.DateTimeField(null=True, blank=True, verbose_name="Début de la partie")
+    end_time = models.DateTimeField(null=True, blank=True, verbose_name="Fin de la partie")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Partie"
+        verbose_name_plural = "Parties"
+        unique_together = ['masterkill_event', 'game_number']
+        ordering = ['masterkill_event', 'game_number']
+
+    def __str__(self):
+        mk_name = self.masterkill_event.name if self.masterkill_event else 'MK Inconnu'
+        return f"MK \"{mk_name}\" - Partie {self.game_number} ({self.get_status_display()})"
+
+class GamePlayerStats(models.Model):
+    game = models.ForeignKey(Game, related_name='player_stats', on_delete=models.CASCADE, verbose_name="Partie")
+    player = models.ForeignKey(Player, related_name='game_stats', on_delete=models.CASCADE, verbose_name="Joueur")
+
+    kills = models.PositiveIntegerField(default=0, verbose_name="Kills")
+    deaths = models.PositiveIntegerField(default=0, verbose_name="Morts")
+    assists = models.PositiveIntegerField(default=0, verbose_name="Assistances") 
+    revives_done = models.PositiveIntegerField(default=0, verbose_name="Réanimations effectuées")
+
+    GULAG_CHOICES = [
+        ('not_played', 'Fermeture'),
+        ('won', 'Gagné'),
+        ('lost', 'Perdu'),
+    ]
+    gulag_status = models.CharField(
+        max_length=10, 
+        choices=GULAG_CHOICES, 
+        default='not_played', 
+        verbose_name="Résultat Goulag"
+    )
+    # Le champ gulag_won (BooleanField) a été correctement retiré précédemment.
+
+    times_executed_enemy = models.PositiveIntegerField(default=0, verbose_name="Exécutions sur ennemi")
+    times_got_executed = models.PositiveIntegerField(default=0, verbose_name="Exécutions subies")
+    rage_quit = models.BooleanField(default=False, verbose_name="A quitté en cours (Rage Quit)")
+    times_redeployed_by_teammate = models.PositiveIntegerField(default=0, verbose_name="Redéployé par coéquipier")
+
+    score_in_game = models.IntegerField(default=0, verbose_name="Score pour cette partie")
+
+    class Meta:
+        verbose_name = "Statistique Joueur par Partie"
+        verbose_name_plural = "Statistiques Joueurs par Partie"
+        unique_together = ['game', 'player']
+
+    def __str__(self):
+        player_gamertag = self.player.gamertag if self.player else 'Joueur Inconnu'
+        game_info = 'Partie Inconnue'
+        if self.game:
+            mk_name = self.game.masterkill_event.name if self.game.masterkill_event else 'MK Inconnu'
+            game_info = f"Partie {self.game.game_number} (MK \"{mk_name}\")"
+        return f"{player_gamertag} dans {game_info}"
+class RedeployEvent(models.Model):
+    game = models.ForeignKey(Game, related_name='redeploy_events', on_delete=models.CASCADE, verbose_name="Partie Concernée")
+    redeployer_player = models.ForeignKey(Player, related_name='initiated_redeploys', on_delete=models.CASCADE, verbose_name="Joueur qui redéploie")
+    redeployed_player = models.ForeignKey(Player, related_name='was_redeployed_by_log', on_delete=models.CASCADE, verbose_name="Joueur redéployé")
+    timestamp = models.DateTimeField(auto_now_add=True, verbose_name="Horodatage")
+
+    class Meta:
+        verbose_name = "Événement de Redéploiement"
+        verbose_name_plural = "Événements de Redéploiement"
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        redeployer_name = self.redeployer_player.gamertag if self.redeployer_player else 'N/A'
+        redeployed_name = self.redeployed_player.gamertag if self.redeployed_player else 'N/A'
+        game_info = f"Partie {self.game.game_number}" if self.game else "Partie Inconnue"
+        mk_info = f"(MK {self.game.masterkill_event.name})" if self.game and self.game.masterkill_event else ""
+        return f"{redeployer_name} a redéployé {redeployed_name} dans {game_info} {mk_info}"
