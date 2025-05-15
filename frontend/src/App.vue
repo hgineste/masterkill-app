@@ -1,31 +1,52 @@
 <script setup>
 import { RouterLink, RouterView, useRouter } from 'vue-router';
-import { computed, watchEffect } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue'; // Ajout de ref, onMounted, onUnmounted
 
 const router = useRouter();
 
-const isAuthenticated = computed(() => {
-  const token = localStorage.getItem('authToken');
-  return !!token;
-});
+// Une clé réactive simple. Changer sa valeur forcera la réévaluation
+// des computed properties qui en dépendent.
+const navUpdateTrigger = ref(0);
 
-watchEffect(() => {
-  console.log('App.vue -> authToken from localStorage:', localStorage.getItem('authToken'));
-  console.log('App.vue -> isAuthenticated computed value:', isAuthenticated.value);
+const isAuthenticated = computed(() => {
+  // On accède à navUpdateTrigger.value pour rendre ce computed dépendant de lui.
+  // Même si on n'utilise pas directement sa valeur dans le return,
+  // le simple fait de l'accéder crée la dépendance réactive.
+  // eslint-disable-next-line no-unused-expressions
+  navUpdateTrigger.value; 
+
+  const token = localStorage.getItem('authToken');
+  console.log('App.vue - isAuthenticated computed. Token:', token, 'Trigger:', navUpdateTrigger.value); // Pour débogage
+  return !!token;
 });
 
 function handleLogout() {
   localStorage.removeItem('authToken');
   localStorage.removeItem('userData');
+  navUpdateTrigger.value++; // Déclencher une mise à jour de la nav
   router.push({ name: 'login' });
-  // Pour une réinitialisation plus complète et s'assurer que la garde de navigation
-  // et l'état isAuthenticated sont bien réévalués partout, un rechargement peut être
-  // une solution simple si vous constatez que l'UI ne se met pas à jour instantanément
-  // après la redirection. Alternativement, un store d'état comme Pinia gérerait mieux cela.
-  // .then(() => {
-  //   window.location.reload();
-  // });
 }
+
+// Variable pour stocker la fonction de désinscription du hook de navigation
+let unregisterAfterEachHook = null;
+
+onMounted(() => {
+  // Ce hook s'exécutera APRÈS chaque navigation réussie.
+  unregisterAfterEachHook = router.afterEach((to, from) => {
+    console.log('App.vue - router.afterEach: Navigation vers', to.name, 'terminée. Mise à jour du trigger.');
+    navUpdateTrigger.value++; // Incrémenter pour forcer la réévaluation de isAuthenticated
+  });
+  // Forcer une évaluation initiale au cas où on arrive sur la page avec un token déjà là
+  // (par exemple après un rechargement manuel) et que la nav ne s'est pas mise à jour via le cycle de vie initial.
+  navUpdateTrigger.value++;
+});
+
+onUnmounted(() => {
+  // Nettoyer le hook si App.vue est un jour démonté (peu probable pour le composant racine)
+  if (unregisterAfterEachHook) {
+    unregisterAfterEachHook();
+  }
+});
 </script>
 
 <template>
