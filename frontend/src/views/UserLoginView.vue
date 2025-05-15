@@ -1,6 +1,5 @@
 <script setup>
 import { ref } from 'vue';
-// MODIFIÉ: Importer apiClient
 import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
 import { useRouter } from 'vue-router';
 import logoWarzone from '@/assets/images/logo-warzone.png';
@@ -16,7 +15,6 @@ async function handleLogin() {
   isLoading.value = true;
   errorMessage.value = null;
   try {
-    // MODIFIÉ: Utiliser apiClient et URL relative
     const loginResponse = await apiClient.post('/auth/login/', {
       username: username.value,
       password: password.value,
@@ -24,11 +22,8 @@ async function handleLogin() {
 
     if (loginResponse.data.token) {
       localStorage.setItem('authToken', loginResponse.data.token);
-      // La ligne suivante n'est PLUS NÉCESSAIRE car l'intercepteur dans apiClient.js s'en charge :
-      // axios.defaults.headers.common['Authorization'] = `Token ${loginResponse.data.token}`;
 
       try {
-        // MODIFIÉ: Utiliser apiClient et URL relative
         const userDetailsResponse = await apiClient.get('/users/me/');
         localStorage.setItem('userData', JSON.stringify(userDetailsResponse.data));
       } catch (userError) {
@@ -51,8 +46,6 @@ async function handleLogin() {
     console.error("Erreur de connexion:", error);
     localStorage.removeItem('authToken');
     localStorage.removeItem('userData');
-    // La ligne suivante n'est PLUS NÉCESSAIRE car l'intercepteur ne trouvera pas de token :
-    // delete axios.defaults.headers.common['Authorization'];
   } finally {
     isLoading.value = false;
   }

@@ -1,6 +1,6 @@
 <script setup>
 import { RouterLink, RouterView, useRouter } from 'vue-router';
-import { computed, watchEffect } from 'vue'; // watchEffect ajouté pour le débogage
+import { computed, watchEffect } from 'vue';
 
 const router = useRouter();
 
@@ -9,7 +9,6 @@ const isAuthenticated = computed(() => {
   return !!token;
 });
 
-// Log pour déboguer l'état d'authentification et sa réactivité
 watchEffect(() => {
   console.log('App.vue -> authToken from localStorage:', localStorage.getItem('authToken'));
   console.log('App.vue -> isAuthenticated computed value:', isAuthenticated.value);
@@ -18,14 +17,14 @@ watchEffect(() => {
 function handleLogout() {
   localStorage.removeItem('authToken');
   localStorage.removeItem('userData');
-  // La suppression de l'en-tête Axios par défaut est gérée par l'intercepteur de apiClient
-  // si plus aucun token n'est dans localStorage lors des prochaines requêtes.
-  
   router.push({ name: 'login' });
-  // Si la navigation ne se met pas à jour immédiatement après la redirection,
-  // un window.location.reload() peut être envisagé ici, mais c'est souvent un contournement
-  // pour un problème de réactivité qui pourrait être mieux géré avec un store d'état.
-  // window.location.reload();
+  // Pour une réinitialisation plus complète et s'assurer que la garde de navigation
+  // et l'état isAuthenticated sont bien réévalués partout, un rechargement peut être
+  // une solution simple si vous constatez que l'UI ne se met pas à jour instantanément
+  // après la redirection. Alternativement, un store d'état comme Pinia gérerait mieux cela.
+  // .then(() => {
+  //   window.location.reload();
+  // });
 }
 </script>
 
