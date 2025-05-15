@@ -98,7 +98,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    # "https://VOTRE_URL_FRONTEND_NETLIFY.netlify.app", # À décommenter et remplir plus tard
+    "https://masterkill.netlify.app"
 ]
 # Pour le débogage CORS uniquement, si absolument nécessaire :
 # CORS_ALLOW_ALL_ORIGINS = True
