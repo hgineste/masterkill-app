@@ -523,7 +523,7 @@ const detailedPlayerStats = computed(() => {
                 </div>
                 
                 <hr>
-                <h3>Carte des Points d'Intérêt (Exemple)</h3>
+                <h3>Carte des Points d'Intérêt</h3>
                 <div class="map-interaction-area">
                     <div class="location-selector-mk-detail">
                         <label for="location-select-detail">Afficher sur la carte :</label>
