@@ -100,7 +100,7 @@ onMounted(() => {
     <div class="classement-view">
         <header class="page-header">
             <img :src="logoWarzone" alt="Warzone Logo" class="warzone-logo">
-            <h1>CLASSEMENTS GÉNÉRAUX DES OPÉRATEURS PAR STATISTIQUE</h1>
+            <h1>CLASSEMENTS GÉNÉRAUX DES OPÉRATEURS</h1>
         </header>
         <div class="content-wrapper-classement">
             <div v-if="isLoading" class="loading">Chargement des classements...</div>

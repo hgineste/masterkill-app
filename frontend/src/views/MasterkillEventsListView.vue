@@ -60,9 +60,9 @@ function formatDate(dateString) {
     </header>
     <div class="content-wrapper-list">
       <div class="main-content-list">
-        <RouterLink :to="{ name: 'create-masterkill' }" class="action-button create-new-mk-button">
+       /* <RouterLink :to="{ name: 'create-masterkill' }" class="action-button create-new-mk-button">
           <span class="icon-plus">+</span> Initialiser un Nouvel Événement MK
-        </RouterLink>
+        </RouterLink>*/
 
         <div class="tabs">
           <button @click="activeTab = 'active'" :class="{ 'active-tab': activeTab === 'active' }">
@@ -152,7 +152,7 @@ function formatDate(dateString) {
 .create-new-mk-button:hover { background-color: #ffcf40; transform: translateY(-2px); box-shadow: 0 5px 10px rgba(0,0,0,0.5); }
 
 .tabs { display: flex; margin-bottom: 25px; border-bottom: 2px solid var(--wz-border-color); }
-.tabs button { padding: 10px 20px; cursor: pointer; background-color: transparent; border: none; color: var(--wz-text-medium); font-size: 1.1em; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; transition: color 0.3s, border-bottom-color 0.3s; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.tabs button { padding: 4px 5px; cursor: pointer; background-color: transparent; border: none; color: var(--wz-text-medium); font-size: 0.95em; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; transition: color 0.3s, border-bottom-color 0.3s; border-bottom: 3px solid transparent; margin-bottom: -2px; }
 .tabs button:hover { color: var(--wz-text-light); }
 .tabs button.active-tab { color: var(--wz-accent-yellow); border-bottom-color: var(--wz-accent-yellow); }
 
