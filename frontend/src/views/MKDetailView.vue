@@ -1,9 +1,8 @@
-<script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-// MODIFIÉ: Importer apiClient
-import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
+import { useRoute, useRouter, RouterLink } from 'vue-router';
+import apiClient from '@/services/apiClient';
 import logoWarzone from '@/assets/images/logo-warzone.png';
+import mapWarzoneImage from '@/assets/images/map_warzone_placeholder.jpg'; 
 
 const route = useRoute();
 const router = useRouter();
@@ -27,6 +26,17 @@ const gulagOptions = ref([
   { value: 'lost', text: 'Perdu' },
 ]);
 
+// ---- Pour la carte interactive ----
+const mapLocations = ref({
+  'Airport': { name: 'Airport', x: 15, y: 25 },
+  'Stadium': { name: 'Stadium', x: 50, y: 30 },
+  'Downtown': { name: 'Downtown', x: 45, y: 60 },
+  'Superstore': { name: 'Superstore', x: 35, y: 50 },
+  // Ajoutez d'autres lieux avec leurs coordonnées en % (gauche, haut)
+});
+const selectedMapLocation = ref(null);
+// ---------------------------------
+
 watch(activeGame, (newVal, oldVal) => {
   if ((newVal && newVal.id && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
      if (!oldVal || newVal.id !== oldVal.id || (newVal.status === 'pending' && oldVal.status !== 'pending') || (newVal.status === 'inprogress' && oldVal.status !== 'inprogress') || !newVal ) {
@@ -35,15 +45,11 @@ watch(activeGame, (newVal, oldVal) => {
   }
 }, { deep: true });
 
-// watch(() => masterkillEvent.value?.status, (newStatus, oldStatus) => {
-// });
-
 async function fetchAggregatedStats() {
   if (!masterkillEvent.value || masterkillEvent.value.status === 'pending') {
     mkAggregatedStats.value = []; return;
   }
   try {
-    // MODIFIÉ: Utiliser apiClient et URL relative
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/aggregated-stats/`);
     mkAggregatedStats.value = response.data || [];
   } catch (err) {
@@ -57,10 +63,8 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
   let initialActiveGameId = activeGame.value?.id;
   let initialActiveGameStatus = activeGame.value?.status;
   try {
-    // MODIFIÉ: Utiliser apiClient et URL relative
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/`);
     masterkillEvent.value = response.data;
-
     const gameInfoFromServer = masterkillEvent.value.current_game_info;
 
     if (gameInfoFromServer && (gameInfoFromServer.id || gameInfoFromServer.status === 'pending')) {
@@ -134,7 +138,6 @@ async function startOrManageGame(actionToDo = 'start_next_game') {
   if (!masterkillEvent.value) return;
   isLoading.value = true;
   try {
-    // MODIFIÉ: Utiliser apiClient et URL relative
     const response = await apiClient.post(`/masterkillevents/${mkId.value}/manage_game/`, { action: actionToDo });
     activeGame.value = response.data;
     if (masterkillEvent.value.status === 'pending' && activeGame.value?.status === 'inprogress') {
@@ -153,11 +156,13 @@ async function handleMKStatusChange(newStatus) {
   if (!masterkillEvent.value) return;
   isLoading.value = true;
   try {
-    // MODIFIÉ: Utiliser apiClient et URL relative
     await apiClient.patch(`/masterkillevents/${masterkillEvent.value.id}/`, { status: newStatus });
     await fetchMKDetails(newStatus === 'pending');
     if (newStatus === 'completed' && masterkillEvent.value?.status === 'completed') {
-      router.push({ name: 'masterkill-results', params: { id: mkId.value } });
+      // La redirection vers masterkill-results est optionnelle si cette vue gère déjà l'affichage final
+      // router.push({ name: 'masterkill-results', params: { id: mkId.value } });
+      // S'assurer que les stats agrégées sont à jour pour l'affichage des stats complétées
+      await fetchAggregatedStats();
     }
   } catch (err) {
     alert(`Erreur màj statut MK: ${err.message}`);
@@ -184,7 +189,6 @@ async function logRedeployEvent() {
   const payload = { game: activeGame.value.id, redeployer_player: redeployData.value.redeployer_player_id, redeployed_player: redeployData.value.redeployed_player_id };
   try {
     isLoading.value = true;
-    // MODIFIÉ: Utiliser apiClient et URL relative (endpoint pour redeployevents)
     await apiClient.post('/redeployevents/', payload);
     const redeployedPlayerId = payload.redeployed_player;
     if (currentGameStats.value[redeployedPlayerId]) {
@@ -221,7 +225,6 @@ async function handleEndGame() {
   });
   isLoading.value = true;
   try {
-    // MODIFIÉ: Utiliser apiClient et URL relative
     const response = await apiClient.post(
       `/games/${activeGame.value.id}/complete/`,
       { player_stats: playerStatsPayloadList }
@@ -229,8 +232,9 @@ async function handleEndGame() {
     alert(response.data.message || "Partie terminée!");
 
     if (response.data.mk_ended || response.data.mk_status === 'completed') {
-      await fetchMKDetails(false); // Re-fetch pour avoir le statut final et le vainqueur
-      router.push({ name: 'masterkill-results', params: { id: mkId.value } });
+      await fetchMKDetails(false);
+      // Si cette page MKDetailView affiche déjà les résultats finaux, la redirection vers MKResultsView n'est plus forcément nécessaire
+      // router.push({ name: 'masterkill-results', params: { id: mkId.value } });
     } else {
       await fetchMKDetails(true);
     }
@@ -253,7 +257,7 @@ const showExplicitNextGameButton = computed(() => {
     if (!masterkillEvent.value || !activeGame.value) return false;
     return masterkillEvent.value.status === 'inprogress' &&
            activeGame.value.status === 'completed' &&
-           activeGame.value.game_number < masterkillEvent.value.num_games_planned;
+           (activeGame.value.game_number || 0) < masterkillEvent.value.num_games_planned;
 });
 
 const canEndMK = computed(() => {
@@ -278,7 +282,9 @@ const showScoreSummaryTable = computed(() => {
          mkAggregatedStats.value.length > 0 &&
          (
            masterkillEvent.value.status === 'paused' ||
-           masterkillEvent.value.status === 'completed' ||
+           // Si le MK est complété, on affichera les stats détaillées à la place ou en plus.
+           // Cette table peut toujours servir de résumé rapide.
+           masterkillEvent.value.status === 'completed' || 
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'completed') ||
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'pending' && completedGamesCountInMK.value > 0)
          );
@@ -298,11 +304,46 @@ const determinedWinnerGamertag = computed(() => {
   if (masterkillEvent.value?.winner_details?.gamertag) {
     return masterkillEvent.value.winner_details.gamertag;
   }
+  // Fallback si winner_details n'est pas là mais qu'on a des scores classés
   if (masterkillEvent.value?.status === 'completed' && rankedPlayerScoresSoFar.value.length > 0) {
     return rankedPlayerScoresSoFar.value[0].gamertag;
   }
   return 'Non déterminé';
 });
+
+// --- Fonctions pour les stats additionnelles ---
+function calculateKDRatio(kills, deaths) {
+  if (deaths === 0) return kills > 0 ? 'INF' : (0).toFixed(2); // Kills mais 0 morts -> K/D infini
+  return (kills / deaths).toFixed(2);
+}
+
+// Vous aurez besoin de plus de données de l'API pour remplir toutes les colonnes de l'Excel
+// par exemple, games_played_in_mk par joueur, total_gulag_lost
+const detailedPlayerStats = computed(() => {
+  if (!mkAggregatedStats.value || mkAggregatedStats.value.length === 0) return [];
+  return mkAggregatedStats.value.map(pStat => {
+    const kills = pStat.total_kills || 0;
+    const deaths = pStat.total_deaths || 0;
+    // Supposons que l'API renvoie 'games_played_in_mk' et 'total_gulag_lost' dans pStat
+    const gamesPlayed = pStat.games_played_in_mk || masterkillEvent.value?.games?.filter(g=>g.status === 'completed').length || 0; // Fallback au nombre total de jeux complétés si non fourni par joueur
+    const gulagWins = pStat.total_gulag_wins || 0;
+    const gulagLost = pStat.total_gulag_lost || 0; // Nécessite que l'API le fournisse
+
+    return {
+      ...pStat.player,
+      total_kills: kills,
+      total_deaths: deaths,
+      kd_ratio: calculateKDRatio(kills, deaths),
+      total_revives_done: pStat.total_revives_done || 0,
+      average_kills_per_game: gamesPlayed > 0 ? (kills / gamesPlayed).toFixed(1) : 0,
+      total_gulag_wins: gulagWins,
+      total_gulag_lost: gulagLost, // À ajouter à l'API
+      gulag_win_ratio: (gulagWins + gulagLost > 0) ? ((gulagWins / (gulagWins + gulagLost)) * 100).toFixed(1) + '%' : 'N/A',
+      // ... Ajoutez d'autres stats si votre API les fournit (Nb Missions, Victoires, etc.)
+    };
+  }).sort((a,b) => (b.total_score_from_games || 0) - (a.total_score_from_games || 0)); // Trier par score total
+});
+
 </script>
 
 <template>
@@ -339,7 +380,7 @@ const determinedWinnerGamertag = computed(() => {
 
         <h3>Détails Événement</h3>
         <div class="details-grid">
-          <p><strong>Créateur:</strong> {{ masterkillEvent.creator_details?.gamertag || 'N/A' }}</p>
+          <p><strong>Créateur:</strong> {{ masterkillEvent.creator_details?.gamertag || masterkillEvent.creator_details?.username ||'N/A' }}</p>
           <p><strong>Créé le:</strong> {{ new Date(masterkillEvent.created_at).toLocaleDateString('fr-FR') }}</p>
           <p><strong>Parties Prévues:</strong> {{ masterkillEvent.num_games_planned }}</p>
           <p><strong>Gage:</strong> {{ masterkillEvent.selected_gage_text || 'Aucun' }}</p>
@@ -376,7 +417,7 @@ const determinedWinnerGamertag = computed(() => {
                  Prêt à démarrer la Partie {{ activeGame.game_number }}. Utilisez le bouton "Démarrer Partie" en haut.
              </p>
               <div v-else-if="showExplicitNextGameButton" class="game-actions">
-                <button @click="startFirstGameOrNext" class="action-btn next-game-btn">Démarrer Partie {{ (activeGame.game_number || 0) + 1 }}</button>
+                <button @click="startFirstGameOrNext" class="action-btn next-game-btn">Démarrer Partie {{ (activeGame.game_number || completedGamesCountInMK) + 1 }}</button>
              </div>
               <p v-else-if="masterkillEvent.status === 'paused'" class="info-message subtle-info">MK en pause. Scores actuels affichés.</p>
           </template>
@@ -426,16 +467,91 @@ const determinedWinnerGamertag = computed(() => {
           </div>
           <p v-else-if="masterkillEvent.status === 'paused'" class="info-message">MK EN PAUSE. Cliquez sur "Reprendre MK" en haut.</p>
         </div>
-
-        <p v-else-if="masterkillEvent?.status === 'pending'" class="start-prompt info-message">
+        
+        <p v-else-if="masterkillEvent.status === 'pending'" class="start-prompt info-message">
             <span v-if="isLoading && !activeGame">Chargement...</span>
             <span v-else>Cliquez sur "Démarrer Partie {{ currentDisplayedGameNumber }}" pour commencer.</span>
-         </p>
-
-        <p v-else-if="masterkillEvent && (masterkillEvent.status === 'completed' || masterkillEvent.status === 'cancelled')" class="completion-message info-message">
-          Événement Masterkill {{ masterkillEvent.status }}.
-          <span>Vainqueur: {{ determinedWinnerGamertag }}!</span>
         </p>
+
+        <div v-else-if="masterkillEvent.status === 'completed' || masterkillEvent.status === 'cancelled'">
+            <p class="completion-message info-message">
+              Événement Masterkill {{ masterkillEvent.status }}.
+              <span v-if="masterkillEvent.status === 'completed' && determinedWinnerGamertag !== 'Non déterminé'">
+                Vainqueur: <strong>{{ determinedWinnerGamertag }}</strong> !
+              </span>
+              <span v-else-if="masterkillEvent.status === 'completed'">
+                Calcul du vainqueur... ou égalité !
+              </span>
+            </p>
+
+            <div v-if="masterkillEvent.status === 'completed' && mkAggregatedStats.length > 0" class="completed-mk-detailed-stats">
+                <hr>
+                <h3>Statistiques Détaillées du Masterkill</h3>
+                
+                <h4>Rapport de Combat Détaillé</h4>
+                <div class="table-responsive">
+                    <table class="stats-table detailed-summary-table">
+                        <thead>
+                        <tr>
+                            <th>Opérateur</th>
+                            <th>Kills</th>
+                            <th>Morts</th>
+                            <th>K/D</th>
+                            <th>Assists</th>
+                            <th>Réanimations</th>
+                            <th>Moy. Kills/Partie</th>
+                            <th>Goulags Gagnés</th>
+                            <th>Goulags Perdus</th>
+                            <th>Ratio Goulag</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <tr v-for="playerStat in detailedPlayerStats" :key="playerStat.id">
+                            <td>{{ playerStat.gamertag }}</td>
+                            <td>{{ playerStat.total_kills }}</td>
+                            <td>{{ playerStat.total_deaths }}</td>
+                            <td>{{ playerStat.kd_ratio }}</td>
+                            <td>{{ playerStat.total_assists || 0 }}</td>
+                            <td>{{ playerStat.total_revives_done }}</td>
+                            <td>{{ playerStat.average_kills_per_game }}</td>
+                            <td>{{ playerStat.total_gulag_wins }}</td>
+                            <td>{{ playerStat.total_gulag_lost }}</td> <td>{{ playerStat.gulag_win_ratio }}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <hr>
+                <h3>Carte des Points d'Intérêt</h3>
+                <div class="map-interaction-area">
+                    <div class="location-selector-mk-detail">
+                        <label for="location-select-detail">Afficher sur la carte :</label>
+                        <select id="location-select-detail" v-model="selectedMapLocation">
+                        <option :value="null">-- Aucun Lieu --</option>
+                        <option v-for="(details, name) in mapLocations" :key="name" :value="name">
+                            {{ details.name }}
+                        </option>
+                        </select>
+                    </div>
+
+                    <div class="map-container-mk-detail">
+                        <img :src="mapWarzoneImage" alt="Carte Warzone" class="map-background-image-detail">
+                        <div
+                        v-if="selectedMapLocation && mapLocations[selectedMapLocation]"
+                        class="map-point-detail"
+                        :style="{ 
+                            left: mapLocations[selectedMapLocation].x + '%', 
+                            top: mapLocations[selectedMapLocation].y + '%' 
+                        }"
+                        :title="mapLocations[selectedMapLocation].name"
+                        >
+                        📍 </div>
+                    </div>
+                </div>
+
+
+            </div>
+        </div>
 
 
         <div class="mk-global-actions">
@@ -598,4 +714,83 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .back-to-list-btn { display: inline-block; margin-top: 30px; padding: 10px 20px; background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); text-decoration: none; border-radius: 4px; font-weight: bold; transition: background-color 0.3s ease; }
 .back-to-list-btn:hover { background-color: #29deef; }
 
+.completed-mk-detailed-stats {
+  margin-top: 30px;
+  padding: 20px;
+  background-color: rgba(0,0,0,0.2);
+  border-radius: 8px;
+}
+.completed-mk-detailed-stats h3, .completed-mk-detailed-stats h4 {
+  color: var(--wz-accent-yellow);
+  text-align: center;
+}
+.completed-mk-detailed-stats h4 {
+  font-size: 1.2em;
+  margin-top: 25px;
+  margin-bottom: 15px;
+}
+.table-responsive {
+  overflow-x: auto; /* Permet le scroll horizontal pour les grandes tables sur petits écrans */
+}
+.detailed-summary-table td, .detailed-summary-table th {
+    padding: 8px 10px; /* Ajuster le padding pour plus de colonnes */
+    white-space: nowrap; /* Empêcher le texte de passer à la ligne dans les cellules */
+    font-size: 0.85em;
+}
+.detailed-summary-table td:first-child, .detailed-summary-table th:first-child {
+    width: auto; /* Laisser la largeur s'ajuster ou définir une largeur min */
+    min-width: 120px;
+    padding-left: 15px;
+}
+
+.map-interaction-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  margin-top: 20px;
+}
+.location-selector-mk-detail label {
+  margin-right: 10px;
+  color: var(--wz-text-medium);
+}
+.location-selector-mk-detail select {
+  padding: 8px 10px;
+  background-color: var(--wz-bg-input);
+  color: var(--wz-text-light);
+  border: 1px solid var(--wz-border-color);
+  border-radius: 4px;
+  min-width: 200px;
+}
+.map-container-mk-detail {
+  position: relative;
+  width: 100%;
+  max-width: 500px; /* Ajustez la taille max de votre carte */
+  border: 2px solid var(--wz-border-color);
+  border-radius: 4px;
+  overflow: hidden; /* Pour bien contenir l'image et les points */
+}
+.map-background-image-detail {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.map-point-detail {
+  position: absolute;
+  width: 12px; /* Taille du point */
+  height: 12px; /* Taille du point */
+  background-color: var(--wz-accent-red);
+  border: 2px solid white;
+  border-radius: 50%;
+  transform: translate(-50%, -50%); /* Centre le point sur les coordonnées x,y */
+  box-shadow: 0 0 8px black;
+  font-size: 1.2em; /* Pour l'emoji si utilisé */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.summary-table td:first-child { width: 15%; text-align: center; padding-left: 5px;}
+.summary-table td:nth-child(2) { width: 55%; text-align: left; padding-left: 15px;}
+.summary-table td:nth-child(3) { width: 30%; text-align: center; font-size: 1.1em;}
 </style>
