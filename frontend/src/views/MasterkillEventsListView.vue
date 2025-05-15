@@ -139,8 +139,6 @@ function formatDate(dateString) {
 .main-content-list { background-color: rgba(30, 30, 30, 0.9); padding: 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.7);}
 .content-wrapper-list {
   width: 80vw;
-  max-width: 1300px;
-  min-width: 750px;
   margin-left: auto;
   margin-right: auto;
   background-color: rgba(30, 30, 30, 0.92);

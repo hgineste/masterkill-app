@@ -189,8 +189,6 @@ async function handleCreateMasterkill() {
 
 .content-wrapper-form {
   width: 80vw;
-  max-width: 1300px;
-  min-width: 750px;
   margin-left: auto;
   margin-right: auto;
   background-color: rgba(30, 30, 30, 0.92);

@@ -466,7 +466,7 @@ onMounted(() => { fetchDataAndInitBonuses(); });
 .page-header { background-color: rgba(0,0,0,0.6); padding: 20px; text-align: center; border-bottom: 3px solid var(--wz-accent-yellow); margin-bottom: 30px; }
 .warzone-logo { max-height: 70px; margin-bottom: 15px; }
 .page-header h1 { color: var(--wz-text-light); font-size: 2.2em; text-transform: uppercase; letter-spacing: 3px; margin: 0; border-bottom: none; font-weight: 700; }
-.content-wrapper-results { width: 80vw; max-width: 1300px; min-width: 600px; margin-left: auto; margin-right: auto; background-color: rgba(30, 30, 30, 0.92); padding: 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.7); }
+.content-wrapper-results { width: 80vw; margin-left: auto; margin-right: auto; background-color: rgba(30, 30, 30, 0.92); padding: 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.7); }
 .loading, .error-message { text-align: center; padding: 30px; color: var(--wz-text-medium); font-size: 1.2em;}
 .error-message { color: var(--wz-text-dark); background-color: var(--wz-accent-red); border: 1px solid #c00;}
 .bonus-slot-machine h2, .mk-results-view h2 { color: var(--wz-accent-cyan); text-align: center; font-size: 1.8em; margin-bottom: 20px; text-transform: uppercase; border-bottom: 1px solid var(--wz-border-color); padding-bottom: 10px; }
