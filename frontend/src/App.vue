@@ -1,26 +1,31 @@
 <script setup>
 import { RouterLink, RouterView, useRouter } from 'vue-router';
-import { computed } from 'vue'; // 'watch' n'est pas utilisé dans ce snippet, donc retiré pour l'instant
-// MODIFIÉ: axios n'est plus directement nécessaire ici pour la déconnexion si tout passe par apiClient
-// import axios from 'axios'; 
+import { computed, watchEffect } from 'vue'; // watchEffect ajouté pour le débogage
 
 const router = useRouter();
 
-const isAuthenticated = computed(() => !!localStorage.getItem('authToken'));
+const isAuthenticated = computed(() => {
+  const token = localStorage.getItem('authToken');
+  return !!token;
+});
+
+// Log pour déboguer l'état d'authentification et sa réactivité
+watchEffect(() => {
+  console.log('App.vue -> authToken from localStorage:', localStorage.getItem('authToken'));
+  console.log('App.vue -> isAuthenticated computed value:', isAuthenticated.value);
+});
 
 function handleLogout() {
   localStorage.removeItem('authToken');
-  localStorage.removeItem('userData'); // C'est bien de supprimer aussi les données utilisateur
-
-  // MODIFIÉ: Cette ligne n'est plus nécessaire si tous les appels API passent par apiClient et son intercepteur.
-  // L'intercepteur ne trouvera plus de token dans localStorage et n'ajoutera donc plus l'en-tête.
-  // delete axios.defaults.headers.common['Authorization']; 
-
-  router.push({ name: 'login' }).then(() => {
-    // Optionnel: forcer un rechargement peut aider à réinitialiser certains états
-    // ou s'assurer que la garde de navigation est correctement réévaluée.
-    // window.location.reload(); 
-  });
+  localStorage.removeItem('userData');
+  // La suppression de l'en-tête Axios par défaut est gérée par l'intercepteur de apiClient
+  // si plus aucun token n'est dans localStorage lors des prochaines requêtes.
+  
+  router.push({ name: 'login' });
+  // Si la navigation ne se met pas à jour immédiatement après la redirection,
+  // un window.location.reload() peut être envisagé ici, mais c'est souvent un contournement
+  // pour un problème de réactivité qui pourrait être mieux géré avec un store d'état.
+  // window.location.reload();
 }
 </script>
 
