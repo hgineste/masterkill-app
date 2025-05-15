@@ -60,9 +60,6 @@ function formatDate(dateString) {
     </header>
     <div class="content-wrapper-list">
       <div class="main-content-list">
-       /* <RouterLink :to="{ name: 'create-masterkill' }" class="action-button create-new-mk-button">
-          <span class="icon-plus">+</span> Initialiser un Nouvel Événement MK
-        </RouterLink>*/
 
         <div class="tabs">
           <button @click="activeTab = 'active'" :class="{ 'active-tab': activeTab === 'active' }">
