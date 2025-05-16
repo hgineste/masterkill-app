@@ -9,12 +9,12 @@ from django.db.models import Sum, Count, Q, F, FloatField, Case, When
 from rest_framework.permissions import IsAuthenticated
 import random
 
-from .models import Gage, MasterkillEvent, Player, Game, GamePlayerStats, RedeployEvent
+from .models import Gage, MasterkillEvent, Player, Game, GamePlayerStats, RedeployEvent, ReviveEvent
 from .serializers import (
     GageSerializer, MasterkillEventSerializer, PlayerSerializer,
     GameSerializer, RedeployEventSerializer, GamePlayerStatsSerializer,
     AggregatedPlayerStatsSerializer, AllTimePlayerStatsSerializer,
-    UserRegistrationSerializer, UserSerializer
+    UserRegistrationSerializer, UserSerializer, ReviveEventSerializer 
 )
 
 @api_view(['GET'])
@@ -42,6 +42,13 @@ class MasterkillAggregatedStatsView(APIView):
         aggregated_stats_list = []
         for player in mk_event.participants.all():
             player_data_serialized = PlayerSerializer(player).data
+            
+            # Compter les réanimations effectuées à partir de ReviveEvent
+            revives_done_count = ReviveEvent.objects.filter(
+                game__in=completed_games, 
+                reviver_player=player
+            ).count()
+
             stats = GamePlayerStats.objects.filter(
                 game__in=completed_games, player=player
             ).aggregate(
@@ -50,7 +57,7 @@ class MasterkillAggregatedStatsView(APIView):
                 total_assists=Sum('assists', default=0),
                 total_gulag_wins=Count('gulag_status', filter=Q(gulag_status='won')),
                 total_gulag_lost=Count('gulag_status', filter=Q(gulag_status='lost')),
-                total_revives_done=Sum('revives_done', default=0),
+                # total_revives_done=Sum('revives_done', default=0), # Remplacé par le comptage de ReviveEvent
                 total_times_executed_enemy=Sum('times_executed_enemy', default=0),
                 total_times_got_executed=Sum('times_got_executed', default=0),
                 total_rage_quits=Count('rage_quit', filter=Q(rage_quit=True)),
@@ -65,7 +72,7 @@ class MasterkillAggregatedStatsView(APIView):
                 'total_assists': stats['total_assists'],
                 'total_gulag_wins': stats['total_gulag_wins'],
                 'total_gulag_lost': stats['total_gulag_lost'],
-                'total_revives_done': stats['total_revives_done'],
+                'total_revives_done': revives_done_count, # Utilisation du comptage de ReviveEvent
                 'total_times_executed_enemy': stats['total_times_executed_enemy'],
                 'total_times_got_executed': stats['total_times_got_executed'],
                 'total_rage_quits': stats['total_rage_quits'],
@@ -157,6 +164,23 @@ class RedeployEventCreateView(generics.CreateAPIView):
         stats.times_redeployed_by_teammate = (stats.times_redeployed_by_teammate or 0) + 1
         stats.save()
 
+class ReviveEventCreateView(generics.CreateAPIView): # NOUVELLE VUE
+    queryset = ReviveEvent.objects.all()
+    serializer_class = ReviveEventSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        revive_event = serializer.save()
+        # Mettre à jour le compteur revives_done sur GamePlayerStats pour le joueur qui a réanimé
+        stats, _ = GamePlayerStats.objects.get_or_create(
+            game=revive_event.game, 
+            player=revive_event.reviver_player,
+            defaults={'game_id': revive_event.game.id, 'player_id': revive_event.reviver_player.id}
+        )
+        stats.revives_done = (stats.revives_done or 0) + 1
+        stats.save()
+        # Vous pourriez aussi vouloir suivre 'times_revived' pour le joueur réanimé si vous ajoutez ce champ à GamePlayerStats
+
 class EndGameAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -187,15 +211,20 @@ class EndGameAPIView(APIView):
             kills = int(player_data.get('kills', 0))
             deaths = int(player_data.get('deaths', 0))
             gulag_status = player_data.get('gulag_status', 'not_played')
-            revives_done = int(player_data.get('revives_done', 0))
+            # revives_done n'est plus directement pris du payload pour le score,
+            # mais on le garde pour GamePlayerStats si le frontend l'envoie encore.
+            # Le score pour les réas sera basé sur les ReviveEvents.
+            revives_done_from_payload = int(player_data.get('revives_done', 0))
             times_executed_enemy = int(player_data.get('times_executed_enemy', 0))
             times_got_executed = int(player_data.get('times_got_executed', 0))
             rage_quit = bool(player_data.get('rage_quit', False))
             times_redeployed_by_teammate = int(player_data.get('times_redeployed_by_teammate', 0))
 
+            actual_revives_done_for_score = ReviveEvent.objects.filter(game=game_instance, reviver_player=player_instance).count()
+
             score = 0
             score += (kills * mk_event.points_kill * game_instance.kill_multiplier)
-            score += revives_done * mk_event.points_rea
+            score += actual_revives_done_for_score * mk_event.points_rea # Score basé sur ReviveEvent
             if gulag_status == 'won':
                 score += mk_event.points_goulag_win
             score += times_redeployed_by_teammate * mk_event.points_redeploiement
@@ -206,7 +235,8 @@ class EndGameAPIView(APIView):
             
             stats_defaults = {
                 'kills': kills, 'deaths': deaths, 'assists': player_data.get('assists', 0),
-                'gulag_status': gulag_status, 'revives_done': revives_done,
+                'gulag_status': gulag_status, 
+                'revives_done': revives_done_from_payload, # On stocke ce que le frontend envoie pour le compteur simple
                 'times_executed_enemy': times_executed_enemy, 'times_got_executed': times_got_executed,
                 'rage_quit': rage_quit, 'times_redeployed_by_teammate': times_redeployed_by_teammate,
                 'score_in_game': score
@@ -227,10 +257,6 @@ class EndGameAPIView(APIView):
         if completed_games_count >= mk_event.num_games_planned:
             mk_event.status = 'completed'
             mk_event.ended_at = timezone.now()
-            # Ici, ajouter la logique pour déterminer et sauvegarder le mk_event.winner
-            # Exemple simple : le joueur avec le plus haut total_score_from_games
-            # Il faudrait recalculer les aggregated_stats ou avoir un moyen d'y accéder
-            # Pour l'instant, on laisse le winner non défini automatiquement ici
             mk_event.save()
             mk_status_updated_to_completed = True
             
@@ -248,12 +274,18 @@ class AllTimePlayerRankingView(generics.ListAPIView):
         players_with_stats = Player.objects.filter(game_stats__game__status='completed').distinct()
         player_rankings = []
         for player in players_with_stats:
+            # Pour total_revives_done, on va sommer les ReviveEvents où ce joueur est le reviver
+            total_revives_done_by_player = ReviveEvent.objects.filter(
+                game__status='completed', 
+                reviver_player=player
+            ).count()
+
             stats = GamePlayerStats.objects.filter(player=player, game__status='completed').aggregate(
                 total_score=Sum('score_in_game', default=0),
                 total_kills=Sum('kills', default=0),
                 total_deaths=Sum('deaths', default=0),
                 total_assists=Sum('assists', default=0),
-                total_revives_done=Sum('revives_done', default=0),
+                # total_revives_done=Sum('revives_done', default=0), # Remplacé
                 total_gulag_wins=Count('gulag_status', filter=Q(gulag_status='won')),
                 total_rage_quits=Count('rage_quit', filter=Q(rage_quit=True)),
                 total_times_redeployed=Sum('times_redeployed_by_teammate', default=0),
@@ -269,7 +301,8 @@ class AllTimePlayerRankingView(generics.ListAPIView):
                 'player_id': player.id, 'gamertag': player.gamertag,
                 'total_score': stats['total_score'], 'total_kills': stats['total_kills'],
                 'total_deaths': stats['total_deaths'], 'total_assists': stats['total_assists'],
-                'total_revives_done': stats['total_revives_done'], 'total_gulag_wins': stats['total_gulag_wins'],
+                'total_revives_done': total_revives_done_by_player, # Utilise le nouveau comptage
+                'total_gulag_wins': stats['total_gulag_wins'],
                 'total_rage_quits': stats['total_rage_quits'], 'total_times_redeployed': stats['total_times_redeployed'],
                 'games_played': stats['games_played'], 'mks_won': mks_won, 'kd_ratio': kd_ratio
             }
@@ -280,7 +313,6 @@ class AllTimePlayerRankingView(generics.ListAPIView):
 
 class MasterkillGameScoresView(APIView):
     permission_classes = [permissions.AllowAny]
-
     def get(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         response_data = {
@@ -318,89 +350,58 @@ class MasterkillGameScoresView(APIView):
         response_data['num_games_played'] = num_games_actually_completed
         return Response(response_data)
 
-# NOUVELLE VUE pour appliquer le bonus
 class ApplyBonusView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk=None): # pk est l'ID du MasterkillEvent
+    def post(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
-
         if mk_event.status != 'completed':
             return Response({"error": "Le Masterkill doit être terminé pour appliquer un bonus."}, status=status.HTTP_400_BAD_REQUEST)
-        
         if not mk_event.has_bonus_reel:
              return Response({"error": "La roue des bonus n'est pas activée pour ce Masterkill."}, status=status.HTTP_400_BAD_REQUEST)
 
         player_id = request.data.get('player_id')
         bonus_points_str = request.data.get('bonus_points')
-        reason = request.data.get('reason', 'Bonus de la roue')
-
         if player_id is None or bonus_points_str is None:
             return Response({"error": "player_id et bonus_points sont requis."}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
-            player_id = int(player_id)
-            bonus_points = int(bonus_points_str)
+            player_id = int(player_id); bonus_points = int(bonus_points_str)
         except ValueError:
             return Response({"error": "player_id et bonus_points doivent être des nombres valides."}, status=status.HTTP_400_BAD_REQUEST)
-
         try:
             player_instance = Player.objects.get(pk=player_id)
             if player_instance not in mk_event.participants.all():
                 return Response({"error": "Ce joueur ne participe pas à cet événement."}, status=status.HTTP_400_BAD_REQUEST)
             
-            # Logique pour appliquer le bonus:
-            # La manière la plus simple d'impacter total_score_from_games (qui est une somme de score_in_game)
-            # est de créer une "pseudo" GamePlayerStats pour ce bonus.
-            # On pourrait aussi avoir un champ bonus_score sur un modèle récapitulatif par joueur/MK.
-            # Créons une partie fictive "bonus" si elle n'existe pas pour ce MK.
-            bonus_game, created = Game.objects.get_or_create(
+            bonus_game, _ = Game.objects.get_or_create(
                 masterkill_event=mk_event,
-                game_number=mk_event.num_games_planned + 1000, # Numéro de partie élevé et unique pour le bonus
-                defaults={'status': 'completed', 'spawn_location': 'BonusRoue'}
+                game_number=mk_event.num_games_planned + 1000, # Pseudo-partie pour le bonus
+                defaults={'status': 'completed', 'spawn_location': 'BonusRoue', 'kill_multiplier': 1.0}
             )
-            
-            # Ajouter/Mettre à jour le score bonus pour ce joueur dans cette partie "bonus"
-            # Si plusieurs bonus peuvent être gagnés, il faudrait une logique plus fine
-            # ou un modèle dédié pour les bonus attribués.
-            # Pour un seul bonus par roue, on peut faire :
             bonus_stat, created_stat = GamePlayerStats.objects.update_or_create(
-                game=bonus_game,
-                player=player_instance,
-                defaults={'score_in_game': bonus_points, 'kills':0, 'deaths':0 } # Mettre les autres stats à 0 pour cette entrée bonus
+                game=bonus_game, player=player_instance,
+                defaults={'score_in_game': bonus_points} # Met à jour ou crée le score bonus
             )
-            if not created_stat: # Si l'entrée existait, on ajoute le bonus (cas de multiples bonus pour un même joueur)
-                bonus_stat.score_in_game = F('score_in_game') + bonus_points
+            if not created_stat: # Si l'entrée existait (multiples bonus pour le même joueur pour ce MK, ou relance)
+                bonus_stat.score_in_game = F('score_in_game') + bonus_points # Cumuler les bonus
                 bonus_stat.save()
-
-            return Response({"message": f"Bonus de {bonus_points} appliqué à {player_instance.gamertag} pour {mk_event.name}."}, status=status.HTTP_200_OK)
-
+            return Response({"message": f"Bonus de {bonus_points} appliqué à {player_instance.gamertag}."}, status=status.HTTP_200_OK)
         except Player.DoesNotExist:
             return Response({"error": "Joueur non trouvé."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-# NOUVELLE VUE pour les kills par spawn
 class MasterkillKillsBySpawnView(APIView):
     permission_classes = [permissions.AllowAny]
-
     def get(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
-        
         kills_by_spawn = GamePlayerStats.objects.filter(
-            game__masterkill_event=mk_event,
-            game__status='completed',
+            game__masterkill_event=mk_event, game__status='completed',
             game__spawn_location__isnull=False
-        ).exclude(
-            game__spawn_location__exact=''
-        ).values(
+        ).exclude(game__spawn_location__exact='').values(
             'game__spawn_location'
         ).annotate(
             total_kills_at_spawn=Sum('kills')
-        ).order_by(
-            '-total_kills_at_spawn'
-        )
+        ).order_by('-total_kills_at_spawn')
         
         data_for_response = [
             {'spawn_location': item['game__spawn_location'], 'total_kills': item['total_kills_at_spawn']}

@@ -29,6 +29,10 @@ const showRedeployLogForm = ref(false);
 const redeployData = ref({ redeployer_player_id: null, redeployed_player_id: null });
 const redeployError = ref(null);
 
+const showReviveLogForm = ref(false);
+const reviveData = ref({ reviver_player_id: null, revived_player_id: null });
+const reviveError = ref(null);
+
 const gulagOptions = ref([
   { value: 'not_played', text: 'Non Joué / Fermé' },
   { value: 'won', text: 'Gagné' },
@@ -42,13 +46,16 @@ const mapLocations = ref({
   'Superstore': { name: 'Superstore', x: 35, y: 50 },
 });
 const selectedMapLocation = ref(null);
-const gameSpawnLocationInput = ref(''); // Pour la saisie du spawn de la partie en cours
+const gameSpawnLocationInput = ref('');
 
 const gameByGameScoresDataDetail = ref(null);
 const isLoadingGraphDataDetail = ref(false);
 const chartLabelsDetail = ref([]);
 const chartDatasetsDetail = ref([]);
 const chartInstanceDetailRef = ref(null);
+
+const killsBySpawnData = ref([]);
+const isLoadingKillsBySpawn = ref(false);
 
 const chartDataDetail = computed(() => ({ labels: chartLabelsDetail.value, datasets: chartDatasetsDetail.value }));
 const chartOptionsDetail = ref({
@@ -71,7 +78,7 @@ watch(activeGame, (newVal, oldVal) => {
         gameSpawnLocationInput.value = newVal?.spawn_location || '';
      }
   } else if (newVal && newVal.status === 'pending') {
-    gameSpawnLocationInput.value = ''; // Réinitialiser pour une nouvelle partie en attente
+    gameSpawnLocationInput.value = '';
   }
 }, { deep: true });
 
@@ -88,11 +95,29 @@ async function fetchAggregatedStats() {
   }
 }
 
+async function fetchKillsBySpawn() {
+  if (!masterkillEvent.value || masterkillEvent.value.status !== 'completed') {
+    killsBySpawnData.value = [];
+    return;
+  }
+  isLoadingKillsBySpawn.value = true;
+  try {
+    const response = await apiClient.get(`/masterkillevents/${mkId.value}/kills-by-spawn/`);
+    killsBySpawnData.value = response.data || [];
+  } catch (err) {
+    console.error("Erreur fetch kills par spawn:", err);
+    killsBySpawnData.value = [];
+  } finally {
+    isLoadingKillsBySpawn.value = false;
+  }
+}
+
 async function fetchMKDetails(resetStatsIfNeeded = true) {
   isLoading.value = true; error.value = null;
   masterkillEvent.value = null; 
   activeGame.value = null;    
   mkAggregatedStats.value = []; 
+  killsBySpawnData.value = []; // Réinitialiser aussi
   
   let initialActiveGameId = activeGame.value?.id; 
   let initialActiveGameStatus = activeGame.value?.status;
@@ -132,6 +157,7 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
 
      if (masterkillEvent.value && masterkillEvent.value.status === 'completed') {
         await fetchGameByGameScoresForDetailChart();
+        await fetchKillsBySpawn();
      }
 
   } catch (err) {
@@ -173,21 +199,24 @@ function toggleRageQuit(playerId) {
 }
 
 async function startOrManageGame(actionToDo = 'start_next_game') {
-  if (!masterkillEvent.value) return;
+  if (!masterkillEvent.value) {
+    error.value = "Données du Masterkill non chargées pour démarrer la partie.";
+    return;
+  }
   isLoading.value = true;
-  error.value = null; // Réinitialiser les erreurs
+  error.value = null;
   try {
     const response = await apiClient.post(`/masterkillevents/${mkId.value}/manage_game/`, { action: actionToDo });
     activeGame.value = response.data; 
     if (masterkillEvent.value.status === 'pending' && activeGame.value?.status === 'inprogress') {
       masterkillEvent.value.status = 'inprogress';
     }
-    await fetchMKDetails(true); // Recharger les détails pour refléter le nouvel état du jeu/MK
+    await fetchMKDetails(true);
   } catch (err) {
-    console.error(`Erreur action '${actionToDo}':`, err.response || err.message || err);
+    console.error(`Erreur action '${actionToDo}':`, err.response?.data || err.message || err);
     error.value = `Erreur action '${actionToDo}': ${err.response?.data?.error || err.message}`;
-    alert(`Erreur action '${actionToDo}': ${err.response?.data?.error || err.message}`); // Garder l'alerte si c'est le comportement souhaité
-    await fetchMKDetails(false); // Recharger pour avoir l'état actuel en cas d'erreur
+    alert(`Erreur action '${actionToDo}': ${err.response?.data?.error || err.message}`);
+    await fetchMKDetails(false);
   } finally {
     isLoading.value = false;
   }
@@ -239,6 +268,37 @@ async function logRedeployEvent() {
   } finally { isLoading.value = false; }
 }
 
+async function logReviveEvent() {
+  reviveError.value = null;
+  if (!activeGame.value?.id) { reviveError.value = "Partie non active."; return; }
+  if (!reviveData.value.reviver_player_id || !reviveData.value.revived_player_id) {
+    reviveError.value = "Sélectionner les deux joueurs pour la réanimation."; return;
+  }
+  if (reviveData.value.reviver_player_id === reviveData.value.revived_player_id) {
+    reviveError.value = "Un joueur ne peut se réanimer lui-même de cette manière."; return;
+  }
+  const payload = { 
+    game: activeGame.value.id, 
+    reviver_player: reviveData.value.reviver_player_id, 
+    revived_player: reviveData.value.revived_player_id 
+  };
+  try {
+    isLoading.value = true; 
+    await apiClient.post('/reviveevents/', payload);
+    const reviverPlayerId = payload.reviver_player;
+    if (currentGameStats.value[reviverPlayerId]) {
+      currentGameStats.value[reviverPlayerId].revives_done = (currentGameStats.value[reviverPlayerId].revives_done || 0) + 1;
+    }
+    alert(`Réanimation enregistrée !`);
+    reviveData.value = { reviver_player_id: null, revived_player_id: null };
+    showReviveLogForm.value = false;
+  } catch (err) {
+    reviveError.value = `Erreur serveur lors du log de réanimation: ${err.response?.data?.detail || err.message}`;
+  } finally {
+    isLoading.value = false;
+  }
+}
+
 async function handleEndGame() {
   if (!activeGame.value || activeGame.value.status !== 'inprogress') {
     alert("Aucune partie en cours à terminer."); return;
@@ -254,7 +314,8 @@ async function handleEndGame() {
       player_id: player.id, kills: stats.kills || 0, deaths: stats.deaths || 0,
       assists: stats.assists || 0, 
       gulag_status: stats.gulag_status || 'not_played',
-      revives_done: stats.revives_done || 0, times_executed_enemy: stats.times_executed_enemy || 0,
+      revives_done: stats.revives_done || 0, 
+      times_executed_enemy: stats.times_executed_enemy || 0,
       times_got_executed: stats.times_got_executed || 0, rage_quit: stats.rage_quit || false,
       times_redeployed_by_teammate: stats.times_redeployed_by_teammate || 0,
     };
@@ -270,7 +331,7 @@ async function handleEndGame() {
       payloadForEndGame
     );
     alert(response.data.message || "Partie terminée!");
-    gameSpawnLocationInput.value = ''; // Réinitialiser après l'envoi
+    gameSpawnLocationInput.value = '';
 
     if (response.data.mk_ended || response.data.mk_status === 'completed') {
       await fetchMKDetails(false);
@@ -385,7 +446,6 @@ const showScoreSummaryTable = computed(() => {
          mkAggregatedStats.value.length > 0 &&
          (
            masterkillEvent.value.status === 'paused' ||
-          //  masterkillEvent.value.status === 'completed' || // Ne plus afficher si complété, car les stats détaillées prennent le relais
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'completed') ||
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'pending' && completedGamesCountInMK.value > 0)
          );
@@ -445,7 +505,7 @@ const detailedPlayerStats = computed(() => {
     const deaths = pStat.total_deaths || 0;
     const gamesPlayed = pStat.games_played_in_mk ?? completedGamesCountInMK.value ?? 0;
     const gulagWins = pStat.total_gulag_wins || 0;
-    const gulagLost = pStat.total_gulag_lost || 0;
+    const gulagLost = pStat.total_gulag_lost || 0; 
 
     return {
       id: pStat.player.id,
@@ -527,14 +587,40 @@ const detailedPlayerStats = computed(() => {
 
         <div v-if="showScoreSummaryTable && masterkillEvent.status !== 'completed'" class="score-summary-interstitial">
           <h3>📊 CLASSEMENT PROVISOIRE (Après Partie {{ completedGamesCountInMK }})</h3>
-          <table class="stats-table summary-table">
-             <thead><tr><th>Rang</th><th>Opérateur</th><th>Score Total</th></tr></thead>
-             <tbody>
-               <tr v-for="playerScore in rankedPlayerScoresSoFar" :key="playerScore.playerId">
-                 <td>#{{ playerScore.rank }}</td><td>{{ playerScore.gamertag }}</td><td><strong>{{ playerScore.totalScore }}</strong></td>
-               </tr>
-             </tbody>
-          </table>
+           <div class="table-responsive">
+            <table class="stats-table detailed-summary-table">
+                <thead>
+                <tr>
+                    <th>Opérateur</th>
+                    <th>Score&nbsp;Actuel</th>
+                    <th>Kills</th>
+                    <th>Morts</th>
+                    <th>K/D</th>
+                    <th>Assists (Info)</th>
+                    <th>Réanimations</th>
+                    <th>Moy.&nbsp;Kills/P.</th>
+                    <th>Goulags&nbsp;G.</th>
+                    <th>Goulags&nbsp;P.</th>
+                    <th>Ratio&nbsp;Goulag</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr v-for="playerStat in detailedPlayerStats" :key="`summary-stat-${playerStat.id}`">
+                    <td>{{ playerStat.gamertag }}</td>
+                    <td><strong>{{ playerStat.total_score_from_games }}</strong></td>
+                    <td>{{ playerStat.total_kills }}</td>
+                    <td>{{ playerStat.total_deaths }}</td>
+                    <td>{{ playerStat.kd_ratio }}</td>
+                    <td>{{ playerStat.total_assists }}</td>
+                    <td>{{ playerStat.total_revives_done }}</td>
+                    <td>{{ playerStat.average_kills_per_game }}</td>
+                    <td>{{ playerStat.total_gulag_wins }}</td>
+                    <td>{{ playerStat.total_gulag_lost }}</td>
+                    <td>{{ playerStat.gulag_win_ratio }}</td>
+                </tr>
+                </tbody>
+            </table>
+          </div>
           <template v-if="masterkillEvent.status !== 'completed'">
              <hr style="margin-top: 20px; margin-bottom: 20px;">
              <p v-if="masterkillEvent.status === 'inprogress' && activeGame?.status === 'pending'" class="info-message subtle-info">
@@ -572,11 +658,11 @@ const detailedPlayerStats = computed(() => {
                 <option v-for="(details, name) in mapLocations" :key="`spawn-opt-${name}`" :value="name">
                   {{ details.name }}
                 </option>
-                 <option value="Autre">Autre (Préciser si besoin)</option> 
-                 </select>
+                 <option value="Autre">Autre (Préciser si besoin)</option>
+              </select>
             </div>
             <table class="stats-table">
-              <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. Done</th><th>Goulag</th><th>Redéployé</th><th>Rage Quit?</th></tr></thead>
+              <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. Done (Compteur)</th><th>Goulag</th><th>Redéployé</th><th>Rage Quit?</th></tr></thead>
               <tbody>
                 <tr v-for="player in masterkillEvent.participants_details" :key="player.id">
                   <td>{{ player.gamertag }}</td>
@@ -594,9 +680,18 @@ const detailedPlayerStats = computed(() => {
                 <button @click="showRedeployLogForm = !showRedeployLogForm" class="action-btn log-redeploy-btn">{{ showRedeployLogForm ? 'Fermer Log Redéploiement' : 'Logger un Redéploiement' }}</button>
                 <form v-if="showRedeployLogForm" @submit.prevent="logRedeployEvent" class="log-event-form">
                     <h4>Qui a redéployé qui ?</h4>
-                    <div class="form-group"><label for="redeployer">Redéployeur:</label><select id="redeployer" v-model="redeployData.redeployer_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="p_.id" :value="p_.id">{{ p_.gamertag }}</option></select></div>
-                    <div class="form-group"><label for="redeployed">Redéployé:</label><select id="redeployed" v-model="redeployData.redeployed_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="p_.id" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                    <div class="form-group"><label for="redeployer">Redéployeur:</label><select id="redeployer" v-model="redeployData.redeployer_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdplr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                    <div class="form-group"><label for="redeployed">Redéployé:</label><select id="redeployed" v-model="redeployData.redeployed_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdpld-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
                     <button type="submit" class="action-btn submit-log-btn">Valider</button><p v-if="redeployError" class="error-message form-error">{{ redeployError }}</p>
+                </form>
+            </div>
+            <div class="action-subsection">
+                <button @click="showReviveLogForm = !showReviveLogForm" class="action-btn log-revive-btn">{{ showReviveLogForm ? 'Fermer Log Réanimation' : 'Logger une Réanimation' }}</button>
+                <form v-if="showReviveLogForm" @submit.prevent="logReviveEvent" class="log-event-form">
+                    <h4>Qui a réanimé qui ?</h4>
+                    <div class="form-group"><label for="reviver">Réanimateur:</label><select id="reviver" v-model="reviveData.reviver_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                    <div class="form-group"><label for="revived">Réanimé:</label><select id="revived" v-model="reviveData.revived_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvd-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                    <button type="submit" class="action-btn submit-log-btn">Valider Réanimation</button><p v-if="reviveError" class="error-message form-error">{{ reviveError }}</p>
                 </form>
             </div>
             <div class="game-actions">
@@ -729,7 +824,7 @@ const detailedPlayerStats = computed(() => {
                         </table>
                     </div>
                 </div>
-                </div>
+            </div>
         </div>
 
         <div class="mk-global-actions">
@@ -744,8 +839,6 @@ const detailedPlayerStats = computed(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
 
 <style scoped>
 .stats-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; margin-bottom: 25px; font-size: 0.9em; table-layout: auto; }
@@ -768,7 +861,7 @@ const detailedPlayerStats = computed(() => {
 .loading, .error-message { text-align: center; padding: 30px; color: var(--wz-text-medium); font-size: 1.2em;}
 .error-message:not(.form-error) { color: var(--wz-text-dark); background-color: var(--wz-accent-red); border: 1px solid #c00; padding: 15px; border-radius: 4px;}
 .form-error { color: var(--wz-text-dark); background-color: var(--wz-accent-red); border:1px solid #c00; padding:10px; border-radius:4px; margin-top:10px;}
-.mk-info-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--wz-border-color); }
+.mk-info-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--wz-border-color); flex-wrap: wrap; gap: 10px;}
 .mk-info-header p { margin: 0; display: flex; align-items: center; }
 .mk-info-header p strong { color: var(--wz-accent-cyan); }
 .status-badge { font-size: 0.9em; padding: 6px 12px; border-radius: 15px; color: var(--wz-bg-dark); text-transform: uppercase; font-weight: bold; display: inline-block; vertical-align: middle;}
@@ -778,7 +871,8 @@ const detailedPlayerStats = computed(() => {
 .status-completed { background-color: #6c757d; color: white; }
 .status-cancelled { background-color: #dc3545; color: white; }
 .current-round-info { color: var(--wz-text-medium); font-size: 0.95em; margin-left: 10px; display: inline-block; vertical-align: middle; }
-.actions-buttons .action-btn { padding: 8px 15px; margin-left: 10px; font-size: 0.9em; }
+.actions-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions-buttons .action-btn { padding: 8px 15px; margin-left: 0; font-size: 0.9em; }
 .mk-details-content h3 { color: var(--wz-accent-cyan); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid var(--wz-border-color); padding-bottom: 8px; font-size: 1.4em; }
 .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 15px; margin-bottom: 15px; }
 .details-grid p, .mk-details-content > p:not(.info-message):not(.completion-message) { margin-bottom: 6px; color: var(--wz-text-medium); font-size: 0.9em; }
@@ -789,18 +883,36 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .current-game-section { margin-top: 25px; padding: 20px; background-color: rgba(0,0,0,0.3); border: 1px solid var(--wz-border-color); border-radius: 8px; }
 .current-game-section h2 { color: var(--wz-accent-yellow); border-bottom: 1px solid var(--wz-border-color); padding-bottom: 10px; margin-bottom: 20px; font-size: 1.5em; }
 .multiplier-active-banner { background-color: var(--wz-accent-yellow); color: var(--wz-text-dark); padding: 10px; text-align: center; font-weight: bold; margin-bottom: 15px; border-radius: 4px;}
+.game-input-section .form-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px;}
+.game-input-section .form-group label { margin-right: 10px; color: var(--wz-text-medium); white-space: nowrap; }
+.game-input-section .form-group select, 
+.game-input-section .form-group input[type="text"] {
+  padding: 6px 8px; font-size: 0.9em; 
+  background-color: var(--wz-bg-dark); 
+  color: var(--wz-text-light); 
+  border:1px solid var(--wz-border-color); 
+  border-radius: 4px;
+  flex-grow: 1;
+}
+.spawn-input-group {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px dashed var(--wz-border-color);
+}
 .stat-cell span { display: inline-block; min-width: 25px; text-align: center; margin: 0 5px; font-weight: bold; font-size: 1.1em; }
 .stat-btn { background-color: var(--wz-bg-light); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-weight: bold; min-width: 22px; font-size: 1.1em; line-height: 1; }
 .stat-btn:hover { opacity: 0.8; background-color: var(--wz-accent-yellow); color: var(--wz-text-dark); }
 .stat-checkbox, .stat-select { accent-color: var(--wz-accent-yellow); transform: scale(1.2); cursor: pointer; vertical-align: middle; }
 .stat-select { background-color: var(--wz-bg-dark); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); padding: 4px 6px; border-radius: 4px; font-size: 0.9em; transform: scale(1.1); }
-.action-subsection { margin-top: 25px; padding-top: 20px; border-top: 1px dashed var(--wz-border-color); }
-.log-redeploy-btn, .submit-log-btn, .action-btn { padding: 10px 18px; font-size: 0.95em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; border-radius: 4px; cursor: pointer; transition: all 0.2s ease; border: 1px solid transparent; color: white; }
-.log-event-form { background-color: var(--wz-bg-light); padding: 20px; border-radius: 5px; border: 1px solid var(--wz-border-color); }
+.action-subsection { margin-top: 25px; padding-top: 20px; border-top: 1px dashed var(--wz-border-color); display: flex; flex-direction: column; gap: 15px; }
+.log-redeploy-btn, .log-revive-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 0; width: fit-content; align-self: flex-start;}
+.submit-log-btn, .action-btn { padding: 10px 18px; font-size: 0.95em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; border-radius: 4px; cursor: pointer; transition: all 0.2s ease; border: 1px solid transparent; color: white; }
+.log-event-form { background-color: var(--wz-bg-light); padding: 20px; border-radius: 5px; border: 1px solid var(--wz-border-color); margin-top: 10px; }
 .log-event-form h4 { margin-top: 0; margin-bottom: 15px; color: var(--wz-text-light); font-size: 1.1em; border-bottom: none; }
 .log-event-form .form-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-.log-event-form .form-group label { width: 90px; text-align: right;}
+.log-event-form .form-group label { width: auto; min-width: 100px; text-align: right;} /* Ajusté */
 .log-event-form select { flex-grow: 1; padding: 8px 10px; background-color: var(--wz-bg-dark); color: var(--wz-text-light); border: 1px solid #454545; border-radius: 4px; }
+.submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 0; margin-top:10px; } /* margin-left retiré */
 .game-actions, .mk-global-actions { margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
 .info-message, .completion-message { text-align: center; font-style: italic; padding: 15px 20px; background-color: rgba(0,0,0,0.2); border: 1px solid var(--wz-border-color); border-radius: 4px; margin-top: 20px; color: var(--wz-text-medium); font-size: 1.1em;}
 .back-to-list-btn { display: inline-block; margin-top: 30px; padding: 10px 20px; background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); text-decoration: none; border-radius: 4px; font-weight: bold; transition: background-color 0.3s ease; }
@@ -808,6 +920,7 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 
 .completed-mk-visuals { margin-top: 20px; }
 .stats-and-map-grid { display: grid; grid-template-columns: minmax(0, 2.5fr) minmax(0, 1fr); gap: 20px; align-items: flex-start; }
+@media (max-width: 992px) { .stats-and-map-grid { grid-template-columns: 1fr; } }
 .detailed-stats-section h3, .map-section-container h3 { color: var(--wz-accent-yellow); text-align: center; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
 .detailed-stats-section h4 { color: var(--wz-accent-cyan); font-size: 1.1em; margin-top: 20px; margin-bottom: 10px; }
 .table-responsive { overflow-x: auto; background-color: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; border: 1px solid var(--wz-border-color); }
@@ -815,7 +928,8 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .detailed-summary-table td:first-child, .detailed-summary-table th:first-child { min-width: 100px; text-align: left; position: sticky; left: 0; background-color: var(--wz-bg-medium); z-index: 1; }
 .detailed-summary-table th:first-child { z-index: 2; }
 .detailed-summary-table strong { font-size: 1.05em; color: var(--wz-text-light); }
-.map-section-container { position: sticky; top: 80px; padding:15px; background-color: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--wz-border-color); }
+.map-section-container { padding:15px; background-color: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--wz-border-color); }
+@media (min-width: 993px) { .map-section-container { position: sticky; top: 80px; } }
 .location-selector-mk-detail { width: 100%; text-align: center; margin-bottom: 10px; }
 .location-selector-mk-detail label { margin-right: 10px; color: var(--wz-text-medium); }
 .location-selector-mk-detail select { padding: 8px 10px; background-color: var(--wz-bg-input); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); border-radius: 4px; min-width: 220px; }
@@ -823,7 +937,7 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .map-background-image-detail { display: block; width: 100%; height: 100%; object-fit: cover; }
 .map-point-detail { position: absolute; width: 10px; height: 10px; background-color: var(--wz-accent-red); border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 6px black; font-size: 0.7em; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; z-index: 10; }
 .game-spawn-point { background-color: var(--wz-accent-cyan); opacity: 0.8; width:12px; height:12px; }
-.selected-spawn-point { background-color: gold; border-color: black; width: 14px; height: 14px; z-index: 11; }
+.selected-spawn-point { background-color: gold; border-color: black; width: 14px; height: 14px; z-index: 11; font-size: 1em; }
 .chart-section-detail { margin-top: 25px; padding: 15px; background-color: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--wz-border-color); }
 .chart-section-detail h3 { color: var(--wz-accent-yellow); text-align: center; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
 .chart-container-detail { height: 350px; position: relative; }
@@ -843,33 +957,7 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .next-game-btn { background-color: var(--wz-accent-green); border-color: var(--wz-accent-green);}
 .end-mk-btn { background-color: #343a40; border-color: #343a40; }
 .end-mk-btn:hover { background-color: #23272b; }
-.log-redeploy-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 15px; }
-.submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 100px;}
-.game-input-section .form-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px;}
-.game-input-section .form-group label { margin-right: 10px; color: var(--wz-text-medium); white-space: nowrap; }
-.game-input-section .form-group select, 
-.game-input-section .form-group input[type="text"] { /* Si vous utilisez un input text pour "Autre" */
-  padding: 6px 8px; font-size: 0.9em; 
-  background-color: var(--wz-bg-dark); 
-  color: var(--wz-text-light); 
-  border:1px solid var(--wz-border-color); 
-  border-radius: 4px;
-  flex-grow: 1; /* Pour que le select/input prenne la place restante */
-}
-.spawn-input-group {
-    margin-bottom: 20px;
-    padding-bottom: 20px;
-    border-bottom: 1px dashed var(--wz-border-color);
-}
-
-.kills-by-spawn-section {
-    margin-top: 30px;
-}
-.kills-by-spawn-section h3 {
-    color: var(--wz-accent-red); /* Couleur distinctive */
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 20px;
-}
+.log-redeploy-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 0; } /* Retiré margin-bottom pour aligner avec le nouveau bouton réa */
+.log-revive-btn { background-color: var(--wz-accent-orange); color: var(--wz-text-dark); margin-bottom: 0;} /* Style pour le nouveau bouton */
+.submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 0; margin-top:10px; } /* margin-left retiré */
 </style>

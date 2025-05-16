@@ -16,6 +16,7 @@ urlpatterns = [
     path('games/<int:game_pk>/complete/', views.EndGameAPIView.as_view(), name='game-complete'),
     
     path('redeployevents/', views.RedeployEventCreateView.as_view(), name='redeployevent-create'),
+    path('reviveevents/', views.ReviveEventCreateView.as_view(), name='reviveevent-create'), # NOUVELLE URL
     
     path('rankings/all-time/', views.AllTimePlayerRankingView.as_view(), name='all-time-ranking'),
     
