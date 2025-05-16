@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Gage, MasterkillEvent, Player, Game, GamePlayerStats, RedeployEvent
+from .models import Gage, MasterkillEvent, Player, Game, GamePlayerStats, RedeployEvent, ReviveEvent
 
 class PlayerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -19,17 +19,17 @@ class GageSerializer(serializers.ModelSerializer):
 
 class GameSerializer(serializers.ModelSerializer):
     kill_multiplier = serializers.FloatField(read_only=True)
-    spawn_location = serializers.CharField(required=False, allow_null=True, allow_blank=True) # Ajouté
+    spawn_location = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = Game
         fields = [
             'id', 'masterkill_event', 'game_number', 'status', 
-            'start_time', 'end_time', 'kill_multiplier', 'spawn_location' # spawn_location ajouté
+            'start_time', 'end_time', 'kill_multiplier', 'spawn_location'
         ]
         read_only_fields = [
             'id', 'masterkill_event', 'start_time', 'end_time', 
-            'kill_multiplier' # spawn_location n'est pas read_only si on veut le définir à la fin de la partie
+            'kill_multiplier'
         ]
 
 class MasterkillEventSerializer(serializers.ModelSerializer):
@@ -159,6 +159,23 @@ class RedeployEventSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'timestamp', 'redeployer_player_gamertag', 'redeployed_player_gamertag']
 
+class ReviveEventSerializer(serializers.ModelSerializer):
+    reviver_player_gamertag = serializers.CharField(source='reviver_player.gamertag', read_only=True)
+    revived_player_gamertag = serializers.CharField(source='revived_player.gamertag', read_only=True)
+    game = serializers.PrimaryKeyRelatedField(queryset=Game.objects.all())
+    reviver_player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
+    revived_player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
+
+    class Meta:
+        model = ReviveEvent
+        fields = [
+            'id', 'game', 
+            'reviver_player', 'reviver_player_gamertag', 
+            'revived_player', 'revived_player_gamertag', 
+            'timestamp'
+        ]
+        read_only_fields = ['id', 'timestamp', 'reviver_player_gamertag', 'revived_player_gamertag']
+
 class GamePlayerStatsSerializer(serializers.ModelSerializer):
     player = serializers.PrimaryKeyRelatedField(queryset=Player.objects.all())
     
@@ -199,16 +216,16 @@ class AggregatedPlayerStatsSerializer(serializers.Serializer):
     player = PlayerSerializer(read_only=True)
     total_kills = serializers.IntegerField(default=0)
     total_deaths = serializers.IntegerField(default=0)
-    total_assists = serializers.IntegerField(default=0) # Reste pour info, ne compte plus au score
+    total_assists = serializers.IntegerField(default=0)
     total_gulag_wins = serializers.IntegerField(default=0)
-    total_gulag_lost = serializers.IntegerField(default=0) # Ajouté pour ratio goulag
+    total_gulag_lost = serializers.IntegerField(default=0)
     total_revives_done = serializers.IntegerField(default=0)
     total_times_executed_enemy = serializers.IntegerField(default=0)
     total_times_got_executed = serializers.IntegerField(default=0)
     total_rage_quits = serializers.IntegerField(default=0)
     total_times_redeployed_by_teammate = serializers.IntegerField(default=0)
     total_score_from_games = serializers.IntegerField(default=0)
-    games_played_in_mk = serializers.IntegerField(default=0) # Ajouté
+    games_played_in_mk = serializers.IntegerField(default=0)
     
 class AllTimePlayerStatsSerializer(serializers.Serializer):
     player_id = serializers.IntegerField()
@@ -216,7 +233,7 @@ class AllTimePlayerStatsSerializer(serializers.Serializer):
     total_score = serializers.IntegerField()
     total_kills = serializers.IntegerField()
     total_deaths = serializers.IntegerField()
-    total_assists = serializers.IntegerField() # Reste pour info
+    total_assists = serializers.IntegerField()
     total_revives_done = serializers.IntegerField()
     total_gulag_wins = serializers.IntegerField()
     total_rage_quits = serializers.IntegerField()

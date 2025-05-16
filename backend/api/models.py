@@ -158,3 +158,21 @@ class RedeployEvent(models.Model):
         game_info = f"Partie {self.game.game_number}" if self.game else "Partie Inconnue"
         mk_info = f"(MK {self.game.masterkill_event.name})" if self.game and self.game.masterkill_event else ""
         return f"{redeployer_name} a redéployé {redeployed_name} dans {game_info} {mk_info}"
+
+class ReviveEvent(models.Model):
+    game = models.ForeignKey(Game, related_name='revive_events', on_delete=models.CASCADE, verbose_name="Partie Concernée")
+    reviver_player = models.ForeignKey(Player, related_name='revives_performed', on_delete=models.CASCADE, verbose_name="Joueur qui réanime")
+    revived_player = models.ForeignKey(Player, related_name='was_revived_events', on_delete=models.CASCADE, verbose_name="Joueur réanimé")
+    timestamp = models.DateTimeField(auto_now_add=True, verbose_name="Horodatage")
+
+    class Meta:
+        verbose_name = "Événement de Réanimation"
+        verbose_name_plural = "Événements de Réanimation"
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        reviver_name = self.reviver_player.gamertag if self.reviver_player else 'N/A'
+        revived_name = self.revived_player.gamertag if self.revived_player else 'N/A'
+        game_info = f"Partie {self.game.game_number}" if self.game else "Partie Inconnue"
+        mk_info = f"(MK {self.game.masterkill_event.name})" if self.game and self.game.masterkill_event else ""
+        return f"{reviver_name} a réanimé {revived_name} dans {game_info} {mk_info}"

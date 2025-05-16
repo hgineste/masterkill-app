@@ -572,7 +572,8 @@ const detailedPlayerStats = computed(() => {
                 <option v-for="(details, name) in mapLocations" :key="`spawn-opt-${name}`" :value="name">
                   {{ details.name }}
                 </option>
-              </select>
+                 <option value="Autre">Autre (Préciser si besoin)</option> 
+                 </select>
             </div>
             <table class="stats-table">
               <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. Done</th><th>Goulag</th><th>Redéployé</th><th>Rage Quit?</th></tr></thead>
@@ -708,7 +709,27 @@ const detailedPlayerStats = computed(() => {
                         />
                     </div>
                 </div>
-            </div>
+                 <div v-if="killsBySpawnData.length > 0" class="kills-by-spawn-section">
+                    <hr>
+                    <h3>☠️ Kills par Lieu de Spawn ☠️</h3>
+                    <div class="table-responsive">
+                        <table class="stats-table detailed-summary-table">
+                        <thead>
+                            <tr>
+                            <th>Lieu de Spawn</th>
+                            <th>Total Kills Effectués</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="spawnStat in killsBySpawnData" :key="spawnStat.spawn_location">
+                            <td>{{ mapLocations[spawnStat.spawn_location]?.name || spawnStat.spawn_location }}</td>
+                            <td><strong>{{ spawnStat.total_kills }}</strong></td>
+                            </tr>
+                        </tbody>
+                        </table>
+                    </div>
+                </div>
+                </div>
         </div>
 
         <div class="mk-global-actions">
@@ -723,6 +744,8 @@ const detailedPlayerStats = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
 
 <style scoped>
 .stats-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; margin-bottom: 25px; font-size: 0.9em; table-layout: auto; }
@@ -822,4 +845,31 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .end-mk-btn:hover { background-color: #23272b; }
 .log-redeploy-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 15px; }
 .submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 100px;}
+.game-input-section .form-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px;}
+.game-input-section .form-group label { margin-right: 10px; color: var(--wz-text-medium); white-space: nowrap; }
+.game-input-section .form-group select, 
+.game-input-section .form-group input[type="text"] { /* Si vous utilisez un input text pour "Autre" */
+  padding: 6px 8px; font-size: 0.9em; 
+  background-color: var(--wz-bg-dark); 
+  color: var(--wz-text-light); 
+  border:1px solid var(--wz-border-color); 
+  border-radius: 4px;
+  flex-grow: 1; /* Pour que le select/input prenne la place restante */
+}
+.spawn-input-group {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px dashed var(--wz-border-color);
+}
+
+.kills-by-spawn-section {
+    margin-top: 30px;
+}
+.kills-by-spawn-section h3 {
+    color: var(--wz-accent-red); /* Couleur distinctive */
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 20px;
+}
 </style>
