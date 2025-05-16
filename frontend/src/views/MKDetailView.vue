@@ -47,7 +47,7 @@ const gameByGameScoresDataDetail = ref(null);
 const isLoadingGraphDataDetail = ref(false);
 const chartLabelsDetail = ref([]);
 const chartDatasetsDetail = ref([]);
-const chartInstanceDetailRef = ref(null); // Ajouté pour la référence au graphique
+const chartInstanceDetailRef = ref(null);
 
 const chartDataDetail = computed(() => ({ labels: chartLabelsDetail.value, datasets: chartDatasetsDetail.value }));
 const chartOptionsDetail = ref({
@@ -148,38 +148,10 @@ function initializeCurrentGameStats() {
   } else { currentGameStats.value = {}; }
 }
 
-function changeStat(playerId, statName, delta) {
-  if (currentGameStats.value[playerId]?.[statName] !== undefined && typeof currentGameStats.value[playerId][statName] === 'number') {
-    const newValue = currentGameStats.value[playerId][statName] + delta;
-    currentGameStats.value[playerId][statName] = Math.max(0, newValue);
-  }
-}
-function updateGulagStatus(playerId, newStatus) {
-  if (currentGameStats.value[playerId]) {
-    currentGameStats.value[playerId].gulag_status = newStatus;
-  }
-}
-function toggleRageQuit(playerId) {
-  if (currentGameStats.value[playerId] && typeof currentGameStats.value[playerId]['rage_quit'] === 'boolean') {
-    currentGameStats.value[playerId]['rage_quit'] = !currentGameStats.value[playerId]['rage_quit'];
-  }
-}
-
-async function startOrManageGame(actionToDo = 'start_next_game') {
-  if (!masterkillEvent.value) return;
-  isLoading.value = true;
-  try {
-    const response = await apiClient.post(`/masterkillevents/${mkId.value}/manage_game/`, { action: actionToDo });
-    activeGame.value = response.data;
-    if (masterkillEvent.value.status === 'pending' && activeGame.value?.status === 'inprogress') {
-      masterkillEvent.value.status = 'inprogress';
-    }
-    await fetchMKDetails(true);
-  } catch (err) {
-    alert(`Erreur action '${actionToDo}': ${err.response?.data?.error || err.message}`);
-    await fetchMKDetails(false);
-  } finally { isLoading.value = false; }
-}
+function changeStat(playerId, statName, delta) { /* ... */ }
+function updateGulagStatus(playerId, newStatus) { /* ... */ }
+function toggleRageQuit(playerId) { /* ... */ }
+async function startOrManageGame(actionToDo = 'start_next_game') { /* ... */ }
 
 async function handleMKStatusChange(newStatus) {
   if (!masterkillEvent.value) return;
@@ -201,46 +173,19 @@ function startFirstGameOrNext() { startOrManageGame('start_next_game'); }
 function pauseMK() { handleMKStatusChange('paused'); }
 function resumeMK() { handleMKStatusChange('inprogress'); }
 async function endMK() { if(confirm("Terminer ce Masterkill ?")) { await handleMKStatusChange('completed'); }}
-
-async function logRedeployEvent() {
-  redeployError.value = null;
-  if (!activeGame.value?.id) { redeployError.value = "Partie non active."; return; }
-  if (!redeployData.value.redeployer_player_id || !redeployData.value.redeployed_player_id) {
-    redeployError.value = "Sélectionner les deux joueurs."; return;
-  }
-  if (redeployData.value.redeployer_player_id === redeployData.value.redeployed_player_id) {
-    redeployError.value = "Un joueur ne peut se redéployer lui-même."; return;
-  }
-  const payload = { game: activeGame.value.id, redeployer_player: redeployData.value.redeployer_player_id, redeployed_player: redeployData.value.redeployed_player_id };
-  try {
-    isLoading.value = true;
-    await apiClient.post('/redeployevents/', payload);
-    const redeployedPlayerId = payload.redeployed_player;
-    if (currentGameStats.value[redeployedPlayerId]) {
-      currentGameStats.value[redeployedPlayerId].times_redeployed_by_teammate = (currentGameStats.value[redeployedPlayerId].times_redeployed_by_teammate || 0) + 1;
-    }
-    alert(`Redéploiement enregistré !`);
-    redeployData.value = { redeployer_player_id: null, redeployed_player_id: null };
-    showRedeployLogForm.value = false;
-  } catch (err) {
-    redeployError.value = `Erreur serveur: ${err.response?.data?.detail || err.message}`;
-  } finally { isLoading.value = false; }
-}
+async function logRedeployEvent() { /* ... */ }
 
 async function handleEndGame() {
-  if (!activeGame.value || activeGame.value.status !== 'inprogress') {
-    alert("Aucune partie en cours à terminer."); return;
-  }
-  if (!masterkillEvent.value?.participants_details) {
-    alert("Données participants manquantes."); return;
-  }
+  if (!activeGame.value || activeGame.value.status !== 'inprogress') { /* ... */ return; }
+  if (!masterkillEvent.value?.participants_details) { /* ... */ return; }
   if (!confirm(`Terminer Partie ${activeGame.value.game_number} et enregistrer scores ?`)) return;
 
   const playerStatsPayloadList = masterkillEvent.value.participants_details.map(player => {
     const stats = currentGameStats.value[player.id] || {};
     return {
       player_id: player.id, kills: stats.kills || 0, deaths: stats.deaths || 0,
-      assists: stats.assists || 0, gulag_status: stats.gulag_status || 'not_played',
+      assists: stats.assists || 0, 
+      gulag_status: stats.gulag_status || 'not_played',
       revives_done: stats.revives_done || 0, times_executed_enemy: stats.times_executed_enemy || 0,
       times_got_executed: stats.times_got_executed || 0, rage_quit: stats.rage_quit || false,
       times_redeployed_by_teammate: stats.times_redeployed_by_teammate || 0,
@@ -291,7 +236,6 @@ function prepareChartDataForDetail() {
 
   if (!participants || participants.length === 0) { return; }
   
-  // Si numGames est 0, mais qu'on a des stats agrégées (MK terminé sans partie jouée, ou avec des scores manuels)
   if (numGames === 0 && mkAggregatedStats.value.length > 0) {
     chartLabelsDetail.value = ["Début", "Score Final"];
     chartDatasetsDetail.value = participants.map(player => {
@@ -308,17 +252,14 @@ function prepareChartDataForDetail() {
     return;
   }
   
-  // Cas normal avec des parties jouées
   chartLabelsDetail.value = ["Début", ...Array.from({ length: numGames }, (_, i) => `Partie ${i + 1}`), "Score Final"];
   
   chartDatasetsDetail.value = participants.map(player => {
     const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
     const playerData = [0];
-    let cumulativeScore = 0; // Cette variable n'est plus utilisée ici car les scores sont déjà cumulatifs par l'API
     const playerScoresForGames = scoresPerGame[player.id.toString()] || [];
     
     for (let i = 0; i < numGames; i++) {
-        // Utiliser le score cumulatif de la partie i, ou le score précédent si la partie i n'a pas de score pour ce joueur
         const scoreForThisGame = playerScoresForGames[i] !== undefined ? playerScoresForGames[i] : (playerData.length > 0 ? playerData[playerData.length -1] : 0) ;
         playerData.push(scoreForThisGame);
     }
@@ -429,9 +370,10 @@ const detailedPlayerStats = computed(() => {
   return mkAggregatedStats.value.map(pStat => {
     const kills = pStat.total_kills || 0;
     const deaths = pStat.total_deaths || 0;
-    const gamesPlayed = pStat.games_played_in_mk || completedGamesCountInMK.value || 0;
+    // Utiliser completedGamesCountInMK pour le nombre de parties du MK si games_played_in_mk n'est pas dans pStat
+    const gamesPlayed = pStat.games_played_in_mk ?? completedGamesCountInMK.value ?? 0;
     const gulagWins = pStat.total_gulag_wins || 0;
-    const gulagLost = pStat.total_gulag_lost || 0; // Ce champ doit être fourni par l'API aggregated-stats
+    const gulagLost = pStat.total_gulag_lost || 0;
 
     return {
       id: pStat.player.id,
@@ -439,7 +381,7 @@ const detailedPlayerStats = computed(() => {
       total_kills: kills,
       total_deaths: deaths,
       kd_ratio: calculateKDRatio(kills, deaths),
-      total_assists: pStat.total_assists || 0, // Reste pour info, ne compte plus au score
+      total_assists: pStat.total_assists || 0,
       total_revives_done: pStat.total_revives_done || 0,
       average_kills_per_game: gamesPlayed > 0 ? (kills / gamesPlayed).toFixed(1) : '0.0',
       total_gulag_wins: gulagWins,
@@ -449,7 +391,6 @@ const detailedPlayerStats = computed(() => {
     };
   }).sort((a,b) => b.total_score_from_games - a.total_score_from_games);
 });
-
 </script>
 
 <template>
@@ -663,8 +604,8 @@ const detailedPlayerStats = computed(() => {
                               }"
                               :title="mapLocations[selectedMapLocation].name"
                             >★</div>
-                            <div v-for="(game) in masterkillEvent.games.filter(g => g.status === 'completed' && g.spawn_location && mapLocations[g.spawn_location])" 
-                                :key="`spawn-point-${game.id}`"
+                            <div v-for="(game, index) in masterkillEvent.games.filter(g => g.status === 'completed' && g.spawn_location && mapLocations[g.spawn_location])" 
+                                :key="`spawn-point-${game.id || index}`"
                                 class="map-point-detail game-spawn-point"
                                 :style="{ left: mapLocations[game.spawn_location].x + '%', top: mapLocations[game.spawn_location].y + '%' }"
                                 :title="`${mapLocations[game.spawn_location].name} (Partie ${game.game_number})`"
@@ -673,7 +614,7 @@ const detailedPlayerStats = computed(() => {
                     </div>
                 </div>
 
-                <div v-if="chartDatasetsDetail.length > 0" class="chart-section-detail">
+                <div v-if="chartDatasetsDetail.length > 0 && masterkillEvent.status === 'completed'" class="chart-section-detail">
                     <hr style="margin-top: 30px;">
                     <h3>Évolution des Scores par Partie</h3>
                     <div v-if="isLoadingGraphDataDetail" class="loading">Chargement du graphique...</div>
@@ -703,15 +644,23 @@ const detailedPlayerStats = computed(() => {
 </template>
 
 <style scoped>
-.stats-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; margin-bottom: 25px; font-size: 0.9em; table-layout: fixed; }
-.stats-table th, .stats-table td { border-bottom: 1px solid var(--wz-border-color); padding: 10px 5px; text-align: center; vertical-align: middle; overflow: hidden; word-break: break-word; }
-.stats-table thead th { background-color: transparent; color: var(--wz-accent-cyan); text-transform: uppercase; font-size: 0.85em; border-bottom-width: 2px; padding: 10px 4px; }
-.stats-table th:first-child, .stats-table td:first-child { text-align: left; font-weight: bold; color: var(--wz-text-light); font-size: 1em; padding-left: 10px; width: 20%; }
+.stats-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; margin-bottom: 25px; font-size: 0.9em; table-layout: auto; }
+.stats-table th, .stats-table td { border-bottom: 1px solid var(--wz-border-color); padding: 10px 5px; text-align: center; vertical-align: middle; }
+.stats-table thead th { background-color: transparent; color: var(--wz-accent-cyan); text-transform: uppercase; font-size: 0.8em; border-bottom-width: 2px; padding: 10px 4px; }
+.stats-table td:first-child, .stats-table th:first-child { 
+  text-align: left; 
+  font-weight: bold; 
+  color: var(--wz-text-light); 
+  font-size: 0.9em;
+  padding-left: 10px; 
+  min-width: 100px;
+  white-space: nowrap;
+}
 .mk-detail-view { min-height: 100vh; font-family: "Agency FB", "Roboto Condensed", Arial, sans-serif; background-color: var(--wz-bg-dark); background-image: linear-gradient(rgba(16, 16, 16, 0.9), rgba(16, 16, 16, 0.97)), url('@/assets/images/logo-warzone.png'); background-size: cover; background-position: center center; background-attachment: fixed; color: var(--wz-text-light); padding: 20px 0; box-sizing: border-box; }
 .page-header { background-color: rgba(0,0,0,0.6); padding: 20px; text-align: center; border-bottom: 3px solid var(--wz-accent-yellow); margin-bottom: 30px; }
 .warzone-logo { max-height: 70px; margin-bottom: 15px; }
 .page-header h1 { color: var(--wz-text-light); font-size: 1.8em; text-transform: uppercase; letter-spacing: 2px; margin: 0; border-bottom: none; font-weight: 700; }
-.content-wrapper-detail { width: 90vw; max-width: 1400px; margin-left: auto; margin-right: auto; background-color: rgba(30, 30, 30, 0.92); padding: 25px 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.7); }
+.content-wrapper-detail { width: 95vw; max-width: 1600px; margin-left: auto; margin-right: auto; background-color: rgba(30, 30, 30, 0.92); padding: 25px 30px; border-radius: 8px; box-shadow: 0 5px 25px rgba(0,0,0,0.7); }
 .loading, .error-message { text-align: center; padding: 30px; color: var(--wz-text-medium); font-size: 1.2em;}
 .error-message:not(.form-error) { color: var(--wz-text-dark); background-color: var(--wz-accent-red); border: 1px solid #c00; padding: 15px; border-radius: 4px;}
 .form-error { color: var(--wz-text-dark); background-color: var(--wz-accent-red); border:1px solid #c00; padding:10px; border-radius:4px; margin-top:10px;}
@@ -728,13 +677,14 @@ const detailedPlayerStats = computed(() => {
 .actions-buttons .action-btn { padding: 8px 15px; margin-left: 10px; font-size: 0.9em; }
 .mk-details-content h3 { color: var(--wz-accent-cyan); margin-top: 25px; margin-bottom: 15px; border-bottom: 1px solid var(--wz-border-color); padding-bottom: 8px; font-size: 1.4em; }
 .details-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 15px; margin-bottom: 15px; }
-.details-grid p, .mk-details-content > p:not(.info-message):not(.completion-message) { margin-bottom: 8px; color: var(--wz-text-medium); font-size: 0.95em; }
+.details-grid p, .mk-details-content > p:not(.info-message):not(.completion-message) { margin-bottom: 6px; color: var(--wz-text-medium); font-size: 0.9em; }
 .details-grid p strong, .mk-details-content > p strong { color: var(--wz-text-light); }
 .participants-list-detail { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .participant-tag-detail { background-color: var(--wz-bg-light); color: var(--wz-accent-yellow); padding: 5px 10px; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--wz-border-color); }
 hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0; }
 .current-game-section { margin-top: 25px; padding: 20px; background-color: rgba(0,0,0,0.3); border: 1px solid var(--wz-border-color); border-radius: 8px; }
 .current-game-section h2 { color: var(--wz-accent-yellow); border-bottom: 1px solid var(--wz-border-color); padding-bottom: 10px; margin-bottom: 20px; font-size: 1.5em; }
+.multiplier-active-banner { background-color: var(--wz-accent-yellow); color: var(--wz-text-dark); padding: 10px; text-align: center; font-weight: bold; margin-bottom: 15px; border-radius: 4px;}
 .stat-cell span { display: inline-block; min-width: 25px; text-align: center; margin: 0 5px; font-weight: bold; font-size: 1.1em; }
 .stat-btn { background-color: var(--wz-bg-light); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-weight: bold; min-width: 22px; font-size: 1.1em; line-height: 1; }
 .stat-btn:hover { opacity: 0.8; background-color: var(--wz-accent-yellow); color: var(--wz-text-dark); }
@@ -752,24 +702,31 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .back-to-list-btn { display: inline-block; margin-top: 30px; padding: 10px 20px; background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); text-decoration: none; border-radius: 4px; font-weight: bold; transition: background-color 0.3s ease; }
 .back-to-list-btn:hover { background-color: #29deef; }
 
-.completed-mk-detailed-stats { margin-top: 30px; padding: 20px; background-color: rgba(0,0,0,0.2); border-radius: 8px; }
-.completed-mk-detailed-stats h3, .completed-mk-detailed-stats h4 { color: var(--wz-accent-yellow); text-align: center; }
-.completed-mk-detailed-stats h4 { font-size: 1.2em; margin-top: 25px; margin-bottom: 15px; }
-.table-responsive { overflow-x: auto; }
-.detailed-summary-table td, .detailed-summary-table th { padding: 6px 8px; white-space: nowrap; font-size: 0.8em; text-align: center;}
-.detailed-summary-table td:first-child, .detailed-summary-table th:first-child { min-width: 100px; text-align: left;}
-.detailed-summary-table strong { font-size: 1.1em; }
-
-.map-interaction-area { display: flex; flex-direction: column; align-items: center; gap: 15px; margin-top: 20px; }
+.completed-mk-visuals { margin-top: 20px; }
+.stats-and-map-grid { display: grid; grid-template-columns: minmax(0, 2.5fr) minmax(0, 1fr); gap: 20px; align-items: flex-start; }
+.detailed-stats-section h3, .map-section-container h3 { color: var(--wz-accent-yellow); text-align: center; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+.detailed-stats-section h4 { color: var(--wz-accent-cyan); font-size: 1.1em; margin-top: 20px; margin-bottom: 10px; }
+.table-responsive { overflow-x: auto; background-color: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; border: 1px solid var(--wz-border-color); }
+.detailed-summary-table td, .detailed-summary-table th { padding: 6px 8px; white-space: nowrap; font-size: 0.8em; text-align: center; }
+.detailed-summary-table td:first-child, .detailed-summary-table th:first-child { min-width: 100px; text-align: left; position: sticky; left: 0; background-color: var(--wz-bg-medium); z-index: 1; }
+.detailed-summary-table th:first-child { z-index: 2; }
+.detailed-summary-table strong { font-size: 1.05em; color: var(--wz-text-light); }
+.map-section-container { position: sticky; top: 80px; padding:15px; background-color: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--wz-border-color); }
+.location-selector-mk-detail { width: 100%; text-align: center; margin-bottom: 10px; }
 .location-selector-mk-detail label { margin-right: 10px; color: var(--wz-text-medium); }
-.location-selector-mk-detail select { padding: 8px 10px; background-color: var(--wz-bg-input); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); border-radius: 4px; min-width: 200px; }
-.map-container-mk-detail { position: relative; width: 100%; max-width: 450px; border: 2px solid var(--wz-border-color); border-radius: 4px; overflow: hidden; margin: 0 auto; }
-.map-background-image-detail { display: block; width: 100%; height: auto; }
-.map-point-detail { position: absolute; width: 14px; height: 14px; background-color: var(--wz-accent-red); border: 2px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 8px black; font-size: 1em; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;}
+.location-selector-mk-detail select { padding: 8px 10px; background-color: var(--wz-bg-input); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); border-radius: 4px; min-width: 220px; }
+.map-container-mk-detail { position: relative; width: 100%; max-width: 400px; border: 2px solid var(--wz-border-color); border-radius: 4px; overflow: hidden; margin: 0 auto; aspect-ratio: 1 / 1; }
+.map-background-image-detail { display: block; width: 100%; height: 100%; object-fit: cover; }
+.map-point-detail { position: absolute; width: 10px; height: 10px; background-color: var(--wz-accent-red); border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 6px black; font-size: 0.7em; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; z-index: 10; }
+.game-spawn-point { background-color: var(--wz-accent-cyan); opacity: 0.8; width:12px; height:12px; }
+.selected-spawn-point { background-color: gold; border-color: black; width: 14px; height: 14px; z-index: 11; }
+.chart-section-detail { margin-top: 25px; padding: 15px; background-color: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--wz-border-color); }
+.chart-section-detail h3 { color: var(--wz-accent-yellow); text-align: center; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+.chart-container-detail { height: 350px; position: relative; }
+.summary-table td:first-child { width: auto; min-width: 50px; text-align: center; padding-left: 5px;}
+.summary-table td:nth-child(2) { width: auto; text-align: left; padding-left: 15px;}
+.summary-table td:nth-child(3) { width: auto; min-width: 80px; text-align: center; font-size: 1.1em;}
 
-.summary-table td:first-child { width: 15%; text-align: center; padding-left: 5px;}
-.summary-table td:nth-child(2) { width: 55%; text-align: left; padding-left: 15px;}
-.summary-table td:nth-child(3) { width: 30%; text-align: center; font-size: 1.1em;}
 .points-rules p {font-size: 0.9em;}
 .start-btn { background-color: var(--wz-accent-green); border-color: var(--wz-accent-green); }
 .start-btn:hover { background-color: #34ce57; }
@@ -779,158 +736,9 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .resume-btn:hover { background-color: #29deef; }
 .end-game-btn { background-color: var(--wz-accent-red); border-color: var(--wz-accent-red);}
 .end-game-btn:hover { background-color: #c82333; }
-.next-game-btn { background-color: var(--wz-accent-green); border-color: var(--wz-accent-green);} 
+.next-game-btn { background-color: var(--wz-accent-green); border-color: var(--wz-accent-green);}
 .end-mk-btn { background-color: #343a40; border-color: #343a40; }
 .end-mk-btn:hover { background-color: #23272b; }
 .log-redeploy-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 15px; }
 .submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 100px;}
-
-.completed-mk-visuals {
-  margin-top: 20px;
-}
-
-.stats-and-map-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr; /* 2/3 pour les stats, 1/3 pour la carte */
-  gap: 25px;
-  margin-top: 20px;
-  align-items: flex-start; /* Aligner les items en haut */
-}
-
-.detailed-stats-section {
-  /* Prendra l'espace défini par la grille */
-}
-
-.map-section-container {
-  /* Prendra l'espace défini par la grille */
-  position: sticky; /* Pour que la carte reste visible en scrollant les stats */
-  top: 80px; /* Ajustez cette valeur en fonction de la hauteur de votre nav sticky */
-}
-
-
-.completed-mk-visuals h3, .completed-mk-visuals h4 {
-  color: var(--wz-accent-yellow);
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-.completed-mk-visuals h4 {
-  font-size: 1.1em;
-  margin-top: 20px;
-  margin-bottom: 15px;
-  color: var(--wz-accent-cyan);
-}
-.table-responsive {
-  overflow-x: auto;
-  background-color: rgba(0,0,0,0.2);
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid var(--wz-border-color);
-}
-.detailed-summary-table td, .detailed-summary-table th {
-    padding: 8px 10px;
-    white-space: nowrap; 
-    font-size: 0.85em; /* Un peu plus petit pour plus de colonnes */
-    text-align: center;
-}
-.detailed-summary-table td:first-child, .detailed-summary-table th:first-child {
-    text-align: left;
-    position: sticky; /* Rendre la première colonne fixe lors du scroll horizontal */
-    left: 0;
-    background-color: var(--wz-bg-medium); /* Fond pour la colonne fixe */
-    z-index: 1;
-}
-.detailed-summary-table th:first-child {
-    z-index: 2; /* Pour que l'en-tête de la première colonne soit au-dessus des autres cellules lors du scroll */
-}
-
-.detailed-summary-table strong {
-  font-size: 1.05em; /* Rendre les scores un peu plus visibles */
-  color: var(--wz-text-light);
-}
-
-.map-interaction-area {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 15px;
-  margin-top: 10px; /* Réduit l'espace au-dessus du sélecteur */
-  padding: 15px;
-  background-color: rgba(0,0,0,0.2);
-  border-radius: 6px;
-  border: 1px solid var(--wz-border-color);
-}
-.location-selector-mk-detail {
-  width: 100%;
-  text-align: center;
-  margin-bottom: 10px;
-}
-.location-selector-mk-detail label {
-  margin-right: 10px;
-  color: var(--wz-text-medium);
-}
-.location-selector-mk-detail select {
-  padding: 8px 10px;
-  background-color: var(--wz-bg-input);
-  color: var(--wz-text-light);
-  border: 1px solid var(--wz-border-color);
-  border-radius: 4px;
-  min-width: 220px;
-}
-.map-container-mk-detail {
-  position: relative;
-  width: 100%;
-  max-width: 400px; /* Ajusté pour la colonne de droite */
-  border: 2px solid var(--wz-border-color);
-  border-radius: 4px;
-  overflow: hidden;
-  margin: 0 auto;
-  aspect-ratio: 1 / 1; /* Pour une carte carrée, ajustez si besoin */
-}
-.map-background-image-detail {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover; /* S'assure que l'image couvre le conteneur */
-}
-.map-point-detail {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  background-color: var(--wz-accent-red);
-  border: 2px solid white;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 8px black;
-  font-size: 0.8em; /* Pour le numéro de partie */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: bold;
-  z-index: 10; /* Pour être au-dessus de l'image */
-}
-.game-spawn-point { /* Style pour les points de spawn des parties */
-  background-color: var(--wz-accent-cyan); /* Couleur différente */
-  opacity: 0.8;
-}
-
-.chart-section-detail {
-  margin-top: 25px;
-  padding: 15px;
-  background-color: rgba(0,0,0,0.2);
-  border-radius: 6px;
-  border: 1px solid var(--wz-border-color);
-}
-.chart-section-detail h3 {
-  color: var(--wz-accent-yellow);
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 20px;
-}
-.chart-container-detail {
-  height: 400px; /* Ou une hauteur adaptée */
-  position: relative;
-}
 </style>

@@ -18,12 +18,19 @@ class GageSerializer(serializers.ModelSerializer):
         fields = ['id', 'text', 'created_at']
 
 class GameSerializer(serializers.ModelSerializer):
-    kill_multiplier = serializers.FloatField(read_only=True) # Ajouté pour lecture
+    kill_multiplier = serializers.FloatField(read_only=True)
+    spawn_location = serializers.CharField(required=False, allow_null=True, allow_blank=True) # Ajouté
 
     class Meta:
         model = Game
-        fields = ['id', 'masterkill_event', 'game_number', 'status', 'start_time', 'end_time', 'kill_multiplier']
-        read_only_fields = ['id', 'masterkill_event', 'start_time', 'end_time', 'kill_multiplier']
+        fields = [
+            'id', 'masterkill_event', 'game_number', 'status', 
+            'start_time', 'end_time', 'kill_multiplier', 'spawn_location' # spawn_location ajouté
+        ]
+        read_only_fields = [
+            'id', 'masterkill_event', 'start_time', 'end_time', 
+            'kill_multiplier' # spawn_location n'est pas read_only si on veut le définir à la fin de la partie
+        ]
 
 class MasterkillEventSerializer(serializers.ModelSerializer):
     participants_details = PlayerSerializer(source='participants', many=True, read_only=True)
@@ -39,8 +46,8 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
         write_only=True, required=False, allow_blank=True, allow_null=True
     )
     
-    has_bonus_reel = serializers.BooleanField(required=False)
-    has_kill_multipliers = serializers.BooleanField(required=False)
+    has_bonus_reel = serializers.BooleanField(required=False, default=True)
+    has_kill_multipliers = serializers.BooleanField(required=False, default=False)
 
     current_game_info = serializers.SerializerMethodField(read_only=True)
     games = GameSerializer(many=True, read_only=True)
@@ -55,7 +62,7 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
             'points_rage_quit', 'points_execution', 'points_humiliation',
             'num_games_planned', 'top1_solo_ends_mk',
             'selected_gage', 'selected_gage_text', 'custom_gage_input_text',
-            'has_bonus_reel', 'has_kill_multipliers', # Nouveaux champs
+            'has_bonus_reel', 'has_kill_multipliers',
             'status', 'winner', 'winner_details',
             'participants', 'participants_details', 'participant_gamertags',
             'current_game_info', 'games', 'completed_games_count'
@@ -111,10 +118,7 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
         participant_gamertags = validated_data.pop('participant_gamertags', [])
         custom_gage_input_text = validated_data.pop('custom_gage_input_text', None)
         
-        # Les champs booléens pour les options sont déjà dans validated_data
-        # car ils ne sont pas write_only et sont des champs du modèle.
-        
-        instance = super().create(validated_data) # 'creator' sera fourni par la vue
+        instance = super().create(validated_data)
         
         self._handle_participants(instance, participant_gamertags)
         self._handle_gage(instance, custom_gage_input_text)
@@ -126,9 +130,6 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         participant_gamertags = validated_data.pop('participant_gamertags', None)
         custom_gage_input_text = validated_data.pop('custom_gage_input_text', None)
-
-        # Les champs booléens 'has_bonus_reel' et 'has_kill_multipliers' seront mis à jour par super().update()
-        # s'ils sont présents dans validated_data.
 
         instance = super().update(instance, validated_data)
 
@@ -198,14 +199,16 @@ class AggregatedPlayerStatsSerializer(serializers.Serializer):
     player = PlayerSerializer(read_only=True)
     total_kills = serializers.IntegerField(default=0)
     total_deaths = serializers.IntegerField(default=0)
-    total_assists = serializers.IntegerField(default=0)
+    total_assists = serializers.IntegerField(default=0) # Reste pour info, ne compte plus au score
     total_gulag_wins = serializers.IntegerField(default=0)
+    total_gulag_lost = serializers.IntegerField(default=0) # Ajouté pour ratio goulag
     total_revives_done = serializers.IntegerField(default=0)
     total_times_executed_enemy = serializers.IntegerField(default=0)
     total_times_got_executed = serializers.IntegerField(default=0)
     total_rage_quits = serializers.IntegerField(default=0)
     total_times_redeployed_by_teammate = serializers.IntegerField(default=0)
     total_score_from_games = serializers.IntegerField(default=0)
+    games_played_in_mk = serializers.IntegerField(default=0) # Ajouté
     
 class AllTimePlayerStatsSerializer(serializers.Serializer):
     player_id = serializers.IntegerField()
@@ -213,7 +216,7 @@ class AllTimePlayerStatsSerializer(serializers.Serializer):
     total_score = serializers.IntegerField()
     total_kills = serializers.IntegerField()
     total_deaths = serializers.IntegerField()
-    total_assists = serializers.IntegerField()
+    total_assists = serializers.IntegerField() # Reste pour info
     total_revives_done = serializers.IntegerField()
     total_gulag_wins = serializers.IntegerField()
     total_rage_quits = serializers.IntegerField()

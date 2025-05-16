@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db.models import Sum, Count, Q, F, FloatField, Case, When
 from rest_framework.permissions import IsAuthenticated
-import random # Ajouté pour les multiplicateurs
+import random
 
 from .models import Gage, MasterkillEvent, Player, Game, GamePlayerStats, RedeployEvent
 from .serializers import (
@@ -35,6 +35,7 @@ class CurrentUserView(APIView):
         return Response(serializer.data)
     
 class MasterkillAggregatedStatsView(APIView):
+    permission_classes = [permissions.AllowAny] # Ou IsAuthenticated
     def get(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         completed_games = mk_event.games.filter(status='completed')
@@ -48,14 +49,14 @@ class MasterkillAggregatedStatsView(APIView):
                 total_deaths=Sum('deaths', default=0),
                 total_assists=Sum('assists', default=0),
                 total_gulag_wins=Count('gulag_status', filter=Q(gulag_status='won')),
-                total_gulag_lost=Count('gulag_status', filter=Q(gulag_status='lost')), # Ajout pour ratio goulag
+                total_gulag_lost=Count('gulag_status', filter=Q(gulag_status='lost')),
                 total_revives_done=Sum('revives_done', default=0),
                 total_times_executed_enemy=Sum('times_executed_enemy', default=0),
                 total_times_got_executed=Sum('times_got_executed', default=0),
                 total_rage_quits=Count('rage_quit', filter=Q(rage_quit=True)),
                 total_times_redeployed_by_teammate=Sum('times_redeployed_by_teammate', default=0),
                 total_score_from_games=Sum('score_in_game', default=0),
-                games_played_in_mk=Count('game', distinct=True) # Renommé pour clarté
+                games_played_in_mk=Count('game', distinct=True)
             )
             player_aggregated_data = {
                 'player': player_data_serialized,
@@ -81,23 +82,19 @@ class MasterkillEventListCreateView(generics.ListCreateAPIView):
     serializer_class = MasterkillEventSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     
-    def perform_create(self, serializer): # Utiliser perform_create est plus idiomatique
+    def perform_create(self, serializer):
         serializer.save(creator=self.request.user)
 
 class MasterkillEventRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = MasterkillEvent.objects.all()
     serializer_class = MasterkillEventSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly] # Ajustez les permissions si nécessaire pour Update/Destroy
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
 class ManageGameView(APIView):
-    permission_classes = [permissions.IsAuthenticated] 
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
-        # S'assurer que seul le créateur ou un admin peut gérer le jeu (exemple)
-        # if request.user != mk_event.creator and not request.user.is_staff:
-        #     return Response({"error": "Vous n'êtes pas autorisé à gérer ce MK."}, status=status.HTTP_403_FORBIDDEN)
-
         action_type = request.data.get('action')
 
         if action_type == 'start_next_game':
@@ -117,25 +114,23 @@ class ManageGameView(APIView):
                     last_completed_game_number = last_game.game_number
                 
                 if last_completed_game_number >= mk_event.num_games_planned:
-                    return Response({"error": "Toutes les parties prévues ont été jouées ou sont en cours."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"error": "Toutes les parties prévues ont été jouées ou la prochaine n'est pas encore créée."}, status=status.HTTP_400_BAD_REQUEST)
                 
                 next_game_number = last_completed_game_number + 1
-                next_game_to_start = Game.objects.create(
+                next_game_to_start, created = Game.objects.get_or_create(
                     masterkill_event=mk_event,
                     game_number=next_game_number,
-                    status='pending' 
+                    defaults={'status': 'pending'} 
                 )
-            
+                # Si elle existait déjà mais n'était pas 'pending', c'est une situation anormale
+                if not created and next_game_to_start.status != 'pending':
+                     return Response({"error": f"La partie {next_game_number} existe déjà avec un statut inattendu: {next_game_to_start.status}."}, status=status.HTTP_400_BAD_REQUEST)
+
+
             next_game_to_start.status = 'inprogress'
             next_game_to_start.start_time = timezone.now()
-
-            if mk_event.has_kill_multipliers:
-                if random.random() < 0.10: # 10% de chance
-                    next_game_to_start.kill_multiplier = random.choice([1.0, 1.5, 2.0, 2.5])
-                else:
-                    next_game_to_start.kill_multiplier = 1.0
-            else:
-                next_game_to_start.kill_multiplier = 1.0
+            
+            next_game_to_start.determine_and_set_kill_multiplier() # Appel de la méthode du modèle
             
             next_game_to_start.save()
 
@@ -152,7 +147,7 @@ class ManageGameView(APIView):
 class RedeployEventCreateView(generics.CreateAPIView):
     queryset = RedeployEvent.objects.all()
     serializer_class = RedeployEventSerializer
-    permission_classes = [permissions.IsAuthenticated] 
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         redeploy_event = serializer.save()
@@ -171,16 +166,14 @@ class EndGameAPIView(APIView):
         game_instance = get_object_or_404(Game, pk=game_pk)
         mk_event = game_instance.masterkill_event
 
-        # S'assurer que seul le créateur ou un admin peut terminer la partie (exemple)
-        # if request.user != mk_event.creator and not request.user.is_staff:
-        #     return Response({"error": "Vous n'êtes pas autorisé à terminer cette partie."}, status=status.HTTP_403_FORBIDDEN)
-
         if game_instance.status == 'completed':
             return Response({"message": "Cette partie est déjà terminée."}, status=status.HTTP_400_BAD_REQUEST)
-        if mk_event.status != 'inprogress' and mk_event.status != 'paused': # Permettre de terminer une partie si MK est en pause
+        if mk_event.status != 'inprogress' and mk_event.status != 'paused':
             return Response({"error": "Le Masterkill n'est pas en cours ou en pause."}, status=status.HTTP_400_BAD_REQUEST)
 
         player_stats_data_list = request.data.get('player_stats', [])
+        game_spawn_location = request.data.get('spawn_location', None) # Récupérer le spawn_location
+
         if not isinstance(player_stats_data_list, list):
             return Response({"error": "Le champ 'player_stats' doit être une liste."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -195,7 +188,6 @@ class EndGameAPIView(APIView):
 
             kills = int(player_data.get('kills', 0))
             deaths = int(player_data.get('deaths', 0))
-            # assists = int(player_data.get('assists', 0)) # On ne l'utilise plus pour le score
             gulag_status = player_data.get('gulag_status', 'not_played')
             revives_done = int(player_data.get('revives_done', 0))
             times_executed_enemy = int(player_data.get('times_executed_enemy', 0))
@@ -204,7 +196,7 @@ class EndGameAPIView(APIView):
             times_redeployed_by_teammate = int(player_data.get('times_redeployed_by_teammate', 0))
 
             score = 0
-            score += (kills * mk_event.points_kill * game_instance.kill_multiplier) # Utilisation du multiplicateur
+            score += (kills * mk_event.points_kill * game_instance.kill_multiplier)
             score += revives_done * mk_event.points_rea
             if gulag_status == 'won':
                 score += mk_event.points_goulag_win
@@ -215,7 +207,7 @@ class EndGameAPIView(APIView):
             score += times_got_executed * mk_event.points_humiliation
             
             stats_defaults = {
-                'kills': kills, 'deaths': deaths, 'assists': player_data.get('assists', 0), # Garder assists pour info
+                'kills': kills, 'deaths': deaths, 'assists': player_data.get('assists', 0),
                 'gulag_status': gulag_status, 'revives_done': revives_done,
                 'times_executed_enemy': times_executed_enemy, 'times_got_executed': times_got_executed,
                 'rage_quit': rage_quit, 'times_redeployed_by_teammate': times_redeployed_by_teammate,
@@ -228,6 +220,8 @@ class EndGameAPIView(APIView):
         
         game_instance.status = 'completed'
         game_instance.end_time = timezone.now()
+        if game_spawn_location and game_spawn_location.strip(): # Enregistrer le spawn_location
+            game_instance.spawn_location = game_spawn_location.strip()
         game_instance.save()
 
         completed_games_count = mk_event.games.filter(status='completed').count()
@@ -235,8 +229,7 @@ class EndGameAPIView(APIView):
         if completed_games_count >= mk_event.num_games_planned:
             mk_event.status = 'completed'
             mk_event.ended_at = timezone.now()
-            # La logique pour déterminer le 'winner' devrait être ici ou dans un signal
-            # après que tous les scores soient finaux.
+            # Ajouter ici la logique pour déterminer et sauvegarder le mk_event.winner
             mk_event.save()
             mk_status_updated_to_completed = True
             
@@ -248,7 +241,7 @@ class EndGameAPIView(APIView):
 
 class AllTimePlayerRankingView(generics.ListAPIView):
     serializer_class = AllTimePlayerStatsSerializer
-    permission_classes = [permissions.AllowAny] # Classement public
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         players_with_stats = Player.objects.filter(game_stats__game__status='completed').distinct()
@@ -258,7 +251,7 @@ class AllTimePlayerRankingView(generics.ListAPIView):
                 total_score=Sum('score_in_game', default=0),
                 total_kills=Sum('kills', default=0),
                 total_deaths=Sum('deaths', default=0),
-                total_assists=Sum('assists', default=0), # Reste pour info
+                total_assists=Sum('assists', default=0),
                 total_revives_done=Sum('revives_done', default=0),
                 total_gulag_wins=Count('gulag_status', filter=Q(gulag_status='won')),
                 total_rage_quits=Count('rage_quit', filter=Q(rage_quit=True)),
@@ -269,8 +262,7 @@ class AllTimePlayerRankingView(generics.ListAPIView):
             
             deaths_for_kd = stats['total_deaths'] if stats['total_deaths'] > 0 else 1
             kd_ratio = round((stats['total_kills'] or 0) / deaths_for_kd, 2)
-            if stats['total_deaths'] == 0 and stats['total_kills'] > 0 : kd_ratio = stats['total_kills'] # Pour afficher X au lieu de X.00 si 0 mort
-
+            if stats['total_deaths'] == 0 and stats['total_kills'] > 0 : kd_ratio = stats['total_kills']
 
             player_data = {
                 'player_id': player.id, 'gamertag': player.gamertag,
@@ -286,25 +278,24 @@ class AllTimePlayerRankingView(generics.ListAPIView):
         return player_rankings
 
 class MasterkillGameScoresView(APIView):
-    permission_classes = [permissions.AllowAny] # Ou IsAuthenticated si les scores sont privés
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         response_data = {
             'mk_id': mk_event.id, 'mk_name': mk_event.name, 
-            'num_games_planned': mk_event.num_games_planned, # Nombre total de parties prévues
+            'num_games_planned': mk_event.num_games_planned,
             'participants': PlayerSerializer(mk_event.participants.all(), many=True).data,
             'player_scores_per_game': {}
         }
         
-        # Utiliser le nombre réel de parties complétées pour l'itération si inférieur au planifié
         completed_games_instances = mk_event.games.filter(status='completed').order_by('game_number')
         num_games_actually_completed = completed_games_instances.count()
         
-        # S'il n'y a pas de parties complétées, on ne peut pas construire les scores par partie.
         if num_games_actually_completed == 0:
              for player in mk_event.participants.all():
                 response_data['player_scores_per_game'][str(player.id)] = []
+             response_data['num_games_played'] = 0
              return Response(response_data)
 
         for player in mk_event.participants.all():
@@ -312,11 +303,8 @@ class MasterkillGameScoresView(APIView):
             response_data['player_scores_per_game'][player_id_str] = []
             cumulative_score = 0
             
-            # Itérer sur les numéros de partie de 1 jusqu'au nombre de parties complétées
             for i in range(1, num_games_actually_completed + 1):
                 game_for_this_number = completed_games_instances.filter(game_number=i).first()
-                # Le score de la partie est 0 si la partie n'existe pas (ne devrait pas arriver ici)
-                # ou si le joueur n'a pas de stats pour cette partie.
                 current_game_score_for_this_game_only = 0
                 if game_for_this_number:
                     stat_entry = GamePlayerStats.objects.filter(game=game_for_this_number, player=player).first()
@@ -326,6 +314,5 @@ class MasterkillGameScoresView(APIView):
                 cumulative_score += current_game_score_for_this_game_only
                 response_data['player_scores_per_game'][player_id_str].append(cumulative_score)
         
-        # Ajouter le nombre de parties réellement jouées/complétées pour le graphique
         response_data['num_games_played'] = num_games_actually_completed
         return Response(response_data)

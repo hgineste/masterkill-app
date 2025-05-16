@@ -82,6 +82,7 @@ class Game(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     kill_multiplier = models.FloatField(default=1.0, verbose_name="Multiplicateur de Kills")
+    spawn_location = models.CharField(max_length=100, null=True, blank=True, verbose_name="Lieu de Spawn")
 
     class Meta:
         verbose_name = "Partie"
@@ -91,17 +92,17 @@ class Game(models.Model):
 
     def __str__(self):
         mk_name = self.masterkill_event.name if self.masterkill_event else 'MK Inconnu'
-        return f"MK \"{mk_name}\" - Partie {self.game_number} ({self.get_status_display()})"
+        spawn_info = f" (Spawn: {self.spawn_location})" if self.spawn_location else ""
+        return f"MK \"{mk_name}\" - Partie {self.game_number}{spawn_info} ({self.get_status_display()})"
 
     def determine_and_set_kill_multiplier(self):
         if self.masterkill_event.has_kill_multipliers:
-            if random.random() < 0.10: # 10% de chance
+            if random.random() < 0.10:
                 self.kill_multiplier = random.choice([1.0, 1.5, 2.0, 2.5])
             else:
                 self.kill_multiplier = 1.0
         else:
             self.kill_multiplier = 1.0
-        # La sauvegarde (self.save()) devra être appelée après l'appel à cette méthode dans la vue.
 
 class GamePlayerStats(models.Model):
     game = models.ForeignKey(Game, related_name='player_stats', on_delete=models.CASCADE, verbose_name="Partie")
