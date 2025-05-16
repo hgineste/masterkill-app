@@ -85,43 +85,69 @@ async function fetchAggregatedStats() {
 }
 
 async function fetchMKDetails(resetStatsIfNeeded = true) {
-  isLoading.value = true; error.value = null;
-  let initialActiveGameId = activeGame.value?.id;
-  let initialActiveGameStatus = activeGame.value?.status;
+  isLoading.value = true;
+  error.value = null;
+  masterkillEvent.value = null; // Initialiser ou réinitialiser explicitement
+  activeGame.value = null;    // Idem pour les états dépendants
+  mkAggregatedStats.value = [];
+
+  let initialActiveGameId = activeGame.value?.id; // Sera undefined, c'est ok
+  let initialActiveGameStatus = activeGame.value?.status; // Sera undefined, c'est ok
+
   try {
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/`);
+    
+    // Vérification cruciale après l'appel API
+    if (!response.data) {
+      console.error("Aucune donnée reçue de l'API pour MK ID:", mkId.value);
+      error.value = `Aucune donnée reçue pour l'événement MK ${mkId.value}.`;
+      isLoading.value = false;
+      return; // Sortir tôt
+    }
     masterkillEvent.value = response.data;
+
+    // Ajouter des gardes avant d'accéder aux propriétés de masterkillEvent.value
+    // Beaucoup de vos `computed properties` et le template sont déjà gardés par v-if="masterkillEvent"
+    // mais la logique DANS cette fonction doit être prudente.
+
     const gameInfoFromServer = masterkillEvent.value.current_game_info;
 
     if (gameInfoFromServer && (gameInfoFromServer.id || gameInfoFromServer.status === 'pending')) {
       activeGame.value = gameInfoFromServer;
-    } else if (masterkillEvent.value.status === 'pending') {
+    } else if (masterkillEvent.value.status === 'pending') { // masterkillEvent.value existe ici
       activeGame.value = { game_number: 1, status: 'pending', id: null, masterkill_event: mkId.value };
-    } else if (masterkillEvent.value.status === 'inprogress' && !gameInfoFromServer) {
-      const completedGames = masterkillEvent.value.games?.filter(g => g.status === 'completed').length || 0;
-      if (completedGames < masterkillEvent.value.num_games_planned) {
-        activeGame.value = { game_number: completedGames + 1, status: 'pending', id: null, masterkill_event: mkId.value };
-      } else { activeGame.value = null; }
-    } else { activeGame.value = null; }
+    } else if (masterkillEvent.value.status === 'inprogress' && !gameInfoFromServer) { // masterkillEvent.value existe ici
+      const completedGamesCount = masterkillEvent.value.games?.filter(g => g.status === 'completed').length || 0;
+      if (completedGamesCount < masterkillEvent.value.num_games_planned) {
+        activeGame.value = { game_number: completedGamesCount + 1, status: 'pending', id: null, masterkill_event: mkId.value };
+      } else { 
+        activeGame.value = null; 
+      }
+    } else {
+      activeGame.value = null;
+    }
 
-    if (masterkillEvent.value.status !== 'pending') {
-      await fetchAggregatedStats();
-    } else { mkAggregatedStats.value = []; }
+    if (masterkillEvent.value.status !== 'pending') { // masterkillEvent.value existe ici
+      await fetchAggregatedStats(); // fetchAggregatedStats vérifie déjà si masterkillEvent.value existe
+    } else {
+      mkAggregatedStats.value = [];
+    }
 
-     if (resetStatsIfNeeded) {
-       const gameChanged = !activeGame.value || activeGame.value.id !== initialActiveGameId || (activeGame.value.id === initialActiveGameId && activeGame.value.status === 'pending' && initialActiveGameStatus !== 'pending');
-       const isNewGameScenario = gameChanged && (activeGame.value?.status !== 'inprogress' || !initialActiveGameId || activeGame.value.id !== initialActiveGameId);
-       if (isNewGameScenario) { initializeCurrentGameStats(); }
-     }
-
-     if (masterkillEvent.value && masterkillEvent.value.status === 'completed') {
-        await fetchGameByGameScoresForDetailChart();
-     }
-
+    if (resetStatsIfNeeded) {
+      // Cette logique semble correcte, mais elle dépend de activeGame.value qui vient d'être défini.
+      const gameChanged = !activeGame.value || activeGame.value.id !== initialActiveGameId || (activeGame.value.id === initialActiveGameId && activeGame.value.status === 'pending' && initialActiveGameStatus !== 'pending');
+      const isNewGameScenario = gameChanged && (activeGame.value?.status !== 'inprogress' || !initialActiveGameId || activeGame.value.id !== initialActiveGameId);
+      if (isNewGameScenario) { 
+        initializeCurrentGameStats(); // initializeCurrentGameStats utilise masterkillEvent.value
+      }
+    }
   } catch (err) {
-    error.value = `Impossible de charger détails MK ${mkId.value}.`;
-    if (err.response?.status === 404) error.value = `MK ${mkId.value} non trouvé.`;
-  } finally { isLoading.value = false; }
+    console.error(`Erreur détaillée lors du chargement de MK ${mkId.value}:`, err.response || err.message || err);
+    error.value = `Impossible de charger les détails du MK ${mkId.value}. Vérifiez la console pour plus d'informations.`;
+    masterkillEvent.value = null; // Très important pour que le template ne plante pas
+  } finally {
+    isLoading.value = false;
+  }
 }
 
 function initializeCurrentGameStats() {
