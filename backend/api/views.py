@@ -35,7 +35,7 @@ class CurrentUserView(APIView):
         return Response(serializer.data)
     
 class MasterkillAggregatedStatsView(APIView):
-    permission_classes = [permissions.AllowAny] # Ou IsAuthenticated
+    permission_classes = [permissions.AllowAny]
     def get(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         completed_games = mk_event.games.filter(status='completed')
@@ -122,15 +122,13 @@ class ManageGameView(APIView):
                     game_number=next_game_number,
                     defaults={'status': 'pending'} 
                 )
-                # Si elle existait déjà mais n'était pas 'pending', c'est une situation anormale
                 if not created and next_game_to_start.status != 'pending':
                      return Response({"error": f"La partie {next_game_number} existe déjà avec un statut inattendu: {next_game_to_start.status}."}, status=status.HTTP_400_BAD_REQUEST)
-
 
             next_game_to_start.status = 'inprogress'
             next_game_to_start.start_time = timezone.now()
             
-            next_game_to_start.determine_and_set_kill_multiplier() # Appel de la méthode du modèle
+            next_game_to_start.determine_and_set_kill_multiplier()
             
             next_game_to_start.save()
 
@@ -172,7 +170,7 @@ class EndGameAPIView(APIView):
             return Response({"error": "Le Masterkill n'est pas en cours ou en pause."}, status=status.HTTP_400_BAD_REQUEST)
 
         player_stats_data_list = request.data.get('player_stats', [])
-        game_spawn_location = request.data.get('spawn_location', None) # Récupérer le spawn_location
+        game_spawn_location = request.data.get('spawn_location', None) 
 
         if not isinstance(player_stats_data_list, list):
             return Response({"error": "Le champ 'player_stats' doit être une liste."}, status=status.HTTP_400_BAD_REQUEST)
@@ -220,7 +218,7 @@ class EndGameAPIView(APIView):
         
         game_instance.status = 'completed'
         game_instance.end_time = timezone.now()
-        if game_spawn_location and game_spawn_location.strip(): # Enregistrer le spawn_location
+        if game_spawn_location and game_spawn_location.strip():
             game_instance.spawn_location = game_spawn_location.strip()
         game_instance.save()
 
@@ -229,7 +227,10 @@ class EndGameAPIView(APIView):
         if completed_games_count >= mk_event.num_games_planned:
             mk_event.status = 'completed'
             mk_event.ended_at = timezone.now()
-            # Ajouter ici la logique pour déterminer et sauvegarder le mk_event.winner
+            # Ici, ajouter la logique pour déterminer et sauvegarder le mk_event.winner
+            # Exemple simple : le joueur avec le plus haut total_score_from_games
+            # Il faudrait recalculer les aggregated_stats ou avoir un moyen d'y accéder
+            # Pour l'instant, on laisse le winner non défini automatiquement ici
             mk_event.save()
             mk_status_updated_to_completed = True
             
@@ -316,3 +317,93 @@ class MasterkillGameScoresView(APIView):
         
         response_data['num_games_played'] = num_games_actually_completed
         return Response(response_data)
+
+# NOUVELLE VUE pour appliquer le bonus
+class ApplyBonusView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk=None): # pk est l'ID du MasterkillEvent
+        mk_event = get_object_or_404(MasterkillEvent, pk=pk)
+
+        if mk_event.status != 'completed':
+            return Response({"error": "Le Masterkill doit être terminé pour appliquer un bonus."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not mk_event.has_bonus_reel:
+             return Response({"error": "La roue des bonus n'est pas activée pour ce Masterkill."}, status=status.HTTP_400_BAD_REQUEST)
+
+        player_id = request.data.get('player_id')
+        bonus_points_str = request.data.get('bonus_points')
+        reason = request.data.get('reason', 'Bonus de la roue')
+
+        if player_id is None or bonus_points_str is None:
+            return Response({"error": "player_id et bonus_points sont requis."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            player_id = int(player_id)
+            bonus_points = int(bonus_points_str)
+        except ValueError:
+            return Response({"error": "player_id et bonus_points doivent être des nombres valides."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            player_instance = Player.objects.get(pk=player_id)
+            if player_instance not in mk_event.participants.all():
+                return Response({"error": "Ce joueur ne participe pas à cet événement."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Logique pour appliquer le bonus:
+            # La manière la plus simple d'impacter total_score_from_games (qui est une somme de score_in_game)
+            # est de créer une "pseudo" GamePlayerStats pour ce bonus.
+            # On pourrait aussi avoir un champ bonus_score sur un modèle récapitulatif par joueur/MK.
+            # Créons une partie fictive "bonus" si elle n'existe pas pour ce MK.
+            bonus_game, created = Game.objects.get_or_create(
+                masterkill_event=mk_event,
+                game_number=mk_event.num_games_planned + 1000, # Numéro de partie élevé et unique pour le bonus
+                defaults={'status': 'completed', 'spawn_location': 'BonusRoue'}
+            )
+            
+            # Ajouter/Mettre à jour le score bonus pour ce joueur dans cette partie "bonus"
+            # Si plusieurs bonus peuvent être gagnés, il faudrait une logique plus fine
+            # ou un modèle dédié pour les bonus attribués.
+            # Pour un seul bonus par roue, on peut faire :
+            bonus_stat, created_stat = GamePlayerStats.objects.update_or_create(
+                game=bonus_game,
+                player=player_instance,
+                defaults={'score_in_game': bonus_points, 'kills':0, 'deaths':0 } # Mettre les autres stats à 0 pour cette entrée bonus
+            )
+            if not created_stat: # Si l'entrée existait, on ajoute le bonus (cas de multiples bonus pour un même joueur)
+                bonus_stat.score_in_game = F('score_in_game') + bonus_points
+                bonus_stat.save()
+
+            return Response({"message": f"Bonus de {bonus_points} appliqué à {player_instance.gamertag} pour {mk_event.name}."}, status=status.HTTP_200_OK)
+
+        except Player.DoesNotExist:
+            return Response({"error": "Joueur non trouvé."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# NOUVELLE VUE pour les kills par spawn
+class MasterkillKillsBySpawnView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, pk=None):
+        mk_event = get_object_or_404(MasterkillEvent, pk=pk)
+        
+        kills_by_spawn = GamePlayerStats.objects.filter(
+            game__masterkill_event=mk_event,
+            game__status='completed',
+            game__spawn_location__isnull=False
+        ).exclude(
+            game__spawn_location__exact=''
+        ).values(
+            'game__spawn_location'
+        ).annotate(
+            total_kills_at_spawn=Sum('kills')
+        ).order_by(
+            '-total_kills_at_spawn'
+        )
+        
+        data_for_response = [
+            {'spawn_location': item['game__spawn_location'], 'total_kills': item['total_kills_at_spawn']}
+            for item in kills_by_spawn if item['game__spawn_location']
+        ]
+        return Response(data_for_response)
