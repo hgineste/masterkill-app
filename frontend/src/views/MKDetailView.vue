@@ -911,6 +911,7 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .stat-checkbox, .stat-select { accent-color: var(--wz-accent-yellow); transform: scale(1.2); cursor: pointer; vertical-align: middle; }
 .stat-select { background-color: var(--wz-bg-dark); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); padding: 4px 6px; border-radius: 4px; font-size: 0.9em; transform: scale(1.1); }
 .action-subsection { margin-top: 25px; padding-top: 20px; border-top: 1px dashed var(--wz-border-color); display: flex; flex-direction: column; gap: 15px; }
+.log-redeploy-btn, .log-revive-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 0; width: fit-content; align-self: flex-start;}
 .submit-log-btn, .action-btn { padding: 10px 18px; font-size: 0.95em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; border-radius: 4px; cursor: pointer; transition: all 0.2s ease; border: 1px solid transparent; color: white; }
 .log-event-form { background-color: var(--wz-bg-light); padding: 20px; border-radius: 5px; border: 1px solid var(--wz-border-color); margin-top: 10px; }
 .log-event-form h4 { margin-top: 0; margin-bottom: 15px; color: var(--wz-text-light); font-size: 1.1em; border-bottom: none; }
@@ -962,7 +963,6 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .next-game-btn { background-color: var(--wz-accent-green); border-color: var(--wz-accent-green);}
 .end-mk-btn { background-color: #343a40; border-color: #343a40; }
 .end-mk-btn:hover { background-color: #23272b; }
-.log-redeploy-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 0; } /* Retiré margin-bottom pour aligner avec le nouveau bouton réa */
-.log-revive-btn { background-color: var(--wz-accent-orange); color: var(--wz-text-dark); margin-bottom: 0;} /* Style pour le nouveau bouton */
+
 .submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 0; margin-top:10px; } /* margin-left retiré */
 </style>
