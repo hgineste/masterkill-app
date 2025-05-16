@@ -3,7 +3,15 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import apiClient from '@/services/apiClient';
 import logoWarzone from '@/assets/images/logo-warzone.png';
-import mapWarzoneImage from '@/assets/images/map_warzone_placeholder.jpg'; // ASSUREZ-VOUS D'AVOIR CETTE IMAGE OU REMPLACEZ-LA
+import mapWarzoneImage from '@/assets/images/map_warzone_placeholder.jpg'; // REMPLACEZ par votre image
+
+import { Line } from 'vue-chartjs';
+import {
+  Chart as ChartJS, Title, Tooltip, Legend, LineElement,
+  CategoryScale, LinearScale, PointElement, Filler
+} from 'chart.js';
+
+ChartJS.register(Title, Tooltip, Legend, LineElement, CategoryScale, LinearScale, PointElement, Filler);
 
 const route = useRoute();
 const router = useRouter();
@@ -34,6 +42,26 @@ const mapLocations = ref({
   'Superstore': { name: 'Superstore', x: 35, y: 50 },
 });
 const selectedMapLocation = ref(null);
+
+const gameByGameScoresDataDetail = ref(null);
+const isLoadingGraphDataDetail = ref(false);
+const chartLabelsDetail = ref([]);
+const chartDatasetsDetail = ref([]);
+
+const chartDataDetail = computed(() => ({ labels: chartLabelsDetail.value, datasets: chartDatasetsDetail.value }));
+const chartOptionsDetail = ref({
+  responsive: true, maintainAspectRatio: false, tension: 0.4,
+  animation: { duration: 0 }, // Pas d'animation point par point pour la vue détail
+  scales: {
+    y: { beginAtZero: true, ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } },
+    x: { ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } }
+  },
+  plugins: {
+    legend: { display: true, position: 'bottom', labels: { color: 'var(--wz-text-light)'} }, // Afficher la légende
+    tooltip: { titleFont: { weight: 'bold'}, bodyFont: {size: 14} },
+  }
+});
+
 
 watch(activeGame, (newVal, oldVal) => {
   if ((newVal && newVal.id && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
@@ -70,9 +98,9 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
     } else if (masterkillEvent.value.status === 'pending') {
       activeGame.value = { game_number: 1, status: 'pending', id: null, masterkill_event: mkId.value };
     } else if (masterkillEvent.value.status === 'inprogress' && !gameInfoFromServer) {
-      const completedGamesCount = masterkillEvent.value.games?.filter(g => g.status === 'completed').length || 0;
-      if (completedGamesCount < masterkillEvent.value.num_games_planned) {
-        activeGame.value = { game_number: completedGamesCount + 1, status: 'pending', id: null, masterkill_event: mkId.value };
+      const completedGames = masterkillEvent.value.games?.filter(g => g.status === 'completed').length || 0;
+      if (completedGames < masterkillEvent.value.num_games_planned) {
+        activeGame.value = { game_number: completedGames + 1, status: 'pending', id: null, masterkill_event: mkId.value };
       } else { activeGame.value = null; }
     } else { activeGame.value = null; }
 
@@ -85,6 +113,11 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
        const isNewGameScenario = gameChanged && (activeGame.value?.status !== 'inprogress' || !initialActiveGameId || activeGame.value.id !== initialActiveGameId);
        if (isNewGameScenario) { initializeCurrentGameStats(); }
      }
+
+     if (masterkillEvent.value && masterkillEvent.value.status === 'completed') {
+        await fetchGameByGameScoresForDetailChart();
+     }
+
   } catch (err) {
     error.value = `Impossible de charger détails MK ${mkId.value}.`;
     if (err.response?.status === 404) error.value = `MK ${mkId.value} non trouvé.`;
@@ -145,9 +178,8 @@ async function handleMKStatusChange(newStatus) {
     await apiClient.patch(`/masterkillevents/${masterkillEvent.value.id}/`, { status: newStatus });
     await fetchMKDetails(newStatus === 'pending');
     if (newStatus === 'completed' && masterkillEvent.value?.status === 'completed') {
-      await fetchAggregatedStats(); // S'assurer que les stats sont à jour
-      // La redirection vers 'masterkill-results' est commentée car cette vue gère les résultats
-      // router.push({ name: 'masterkill-results', params: { id: mkId.value } });
+      await fetchAggregatedStats();
+      router.push({ name: 'masterkill-results', params: { id: mkId.value } });
     }
   } catch (err) {
     alert(`Erreur màj statut MK: ${err.message}`);
@@ -214,6 +246,7 @@ async function handleEndGame() {
 
     if (response.data.mk_ended || response.data.mk_status === 'completed') {
       await fetchMKDetails(false);
+      router.push({ name: 'masterkill-results', params: { id: mkId.value } });
     } else {
       await fetchMKDetails(true);
     }
@@ -223,7 +256,74 @@ async function handleEndGame() {
   } finally { isLoading.value = false; }
 }
 
-onMounted(() => { fetchMKDetails(); });
+async function fetchGameByGameScoresForDetailChart() {
+  if (!masterkillEvent.value || masterkillEvent.value.status !== 'completed') {
+    allLinesDrawnForDetail.value = true; return;
+  }
+  isLoadingGraphDataDetail.value = true; allLinesDrawnForDetail.value = false;
+  try {
+    const response = await apiClient.get(`/masterkillevents/${mkId.value}/game-scores/`);
+    gameByGameScoresDataDetail.value = response.data;
+    if (gameByGameScoresDataDetail.value?.player_scores_per_game) {
+        prepareChartDataForDetail();
+    } else { chartLabelsDetail.value = []; chartDatasetsDetail.value = []; allLinesDrawnForDetail.value = true; }
+  } catch (err) { console.error("Erreur fetch scores par partie pour détail:", err); allLinesDrawnForDetail.value = true; }
+  finally { isLoadingGraphDataDetail.value = false; }
+}
+
+function prepareChartDataForDetail() {
+  if (!gameByGameScoresDataDetail.value || !masterkillEvent.value?.participants_details) {
+    chartLabelsDetail.value = []; chartDatasetsDetail.value = []; allLinesDrawnForDetail.value = true; return;
+  }
+  const numGames = gameByGameScoresDataDetail.value.num_games_played ?? masterkillEvent.value.num_games_planned ?? 0;
+  const participants = gameByGameScoresDataDetail.value.participants || masterkillEvent.value.participants_details;
+  const scoresPerGame = gameByGameScoresDataDetail.value.player_scores_per_game;
+
+  if (!participants || participants.length === 0 || numGames === 0) {
+    chartLabelsDetail.value = ["Début", "Score Final"];
+    chartDatasetsDetail.value = participants.map(player => {
+        const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
+        const aggPlayerStat = mkAggregatedStats.value.find(s => s.player.id === player.id);
+        const finalScoreFromAgg = aggPlayerStat ? (aggPlayerStat.total_score_from_games || 0) : 0;
+        return {
+            label: player.gamertag, data: [0, finalScoreFromAgg], borderColor: `rgb(${r},${g},${b})`,
+            backgroundColor: `rgba(${r},${g},${b},0.15)`, tension: 0.4, fill: 'origin',
+            pointRadius: 5, pointBackgroundColor: `rgb(${r},${g},${b})`,
+            pointHoverRadius: 7, pointHoverBorderWidth: 2, borderWidth: 3,
+        };
+    });
+    allLinesDrawnForDetail.value = true; return;
+  }
+
+  chartLabelsDetail.value = ["Début", ...Array.from({ length: numGames }, (_, i) => `Partie ${i + 1}`), "Score Final"];
+  
+  chartDatasetsDetail.value = participants.map(player => {
+    const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
+    const playerData = [0];
+    let cumulativeScore = 0;
+    const playerScoresForGames = scoresPerGame[player.id.toString()] || [];
+    
+    for (let i = 0; i < numGames; i++) {
+        cumulativeScore = playerScoresForGames[i] !== undefined ? playerScoresForGames[i] : cumulativeScore;
+        playerData.push(cumulativeScore);
+    }
+    const aggPlayerStat = mkAggregatedStats.value.find(s => s.player.id === player.id);
+    const finalScoreFromAgg = aggPlayerStat ? (aggPlayerStat.total_score_from_games || 0) : cumulativeScore;
+    playerData.push(finalScoreFromAgg);
+
+    return {
+      label: player.gamertag, data: playerData, borderColor: `rgb(${r},${g},${b})`,
+      backgroundColor: `rgba(${r},${g},${b},0.15)`, tension: 0.4, fill: 'origin',
+      pointRadius: 5, pointBackgroundColor: `rgb(${r},${g},${b})`,
+      pointHoverRadius: 7, pointHoverBorderWidth: 2, borderWidth: 3,
+    };
+  });
+  allLinesDrawnForDetail.value = true;
+}
+
+onMounted(() => {
+  fetchMKDetails();
+});
 
 const canStartCurrentPendingGame = computed(() => masterkillEvent.value && (masterkillEvent.value.status === 'pending' || masterkillEvent.value.status === 'inprogress') && activeGame.value?.status === 'pending');
 const canPauseMK = computed(() => masterkillEvent.value?.status === 'inprogress' && activeGame.value?.status === 'inprogress');
@@ -236,12 +336,10 @@ const showExplicitNextGameButton = computed(() => {
            activeGame.value.status === 'completed' &&
            (activeGame.value.game_number || 0) < masterkillEvent.value.num_games_planned;
 });
-
 const canEndMK = computed(() => {
   return masterkillEvent.value &&
          (masterkillEvent.value.status === 'inprogress' || masterkillEvent.value.status === 'paused');
 });
-
 const availablePlayersForRedeploy = computed(() => masterkillEvent.value?.participants_details || []);
 const currentDisplayedGameNumber = computed(() => {
     if (activeGame.value && (activeGame.value.status === 'pending' || activeGame.value.status === 'inprogress')) return activeGame.value.game_number;
@@ -259,7 +357,7 @@ const showScoreSummaryTable = computed(() => {
          mkAggregatedStats.value.length > 0 &&
          (
            masterkillEvent.value.status === 'paused' ||
-           masterkillEvent.value.status === 'completed' ||
+           masterkillEvent.value.status === 'completed' || 
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'completed') ||
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'pending' && completedGamesCountInMK.value > 0)
          );
@@ -312,7 +410,6 @@ const averageKillsPerGameOverall = computed(() => {
     return 'N/A';
 });
 
-
 const detailedPlayerStats = computed(() => {
   if (!mkAggregatedStats.value || mkAggregatedStats.value.length === 0 || !masterkillEvent.value) return [];
   return mkAggregatedStats.value.map(pStat => {
@@ -338,7 +435,6 @@ const detailedPlayerStats = computed(() => {
     };
   }).sort((a,b) => b.total_score_from_games - a.total_score_from_games);
 });
-
 </script>
 
 <template>
@@ -482,70 +578,85 @@ const detailedPlayerStats = computed(() => {
               </span>
             </p>
 
-            <div v-if="masterkillEvent.status === 'completed' && mkAggregatedStats.length > 0" class="completed-mk-detailed-stats">
+            <div v-if="masterkillEvent.status === 'completed' && mkAggregatedStats.length > 0" class="completed-mk-visuals">
                 <hr>
-                <h3>Statistiques Détaillées du Masterkill</h3>
-                
-                <h4>Rapport de Combat Détaillé</h4>
-                <div class="table-responsive">
-                    <table class="stats-table detailed-summary-table">
-                        <thead>
-                        <tr>
-                            <th>Opérateur</th>
-                            <th>Score&nbsp;Total</th>
-                            <th>Kills</th>
-                            <th>Morts</th>
-                            <th>K/D</th>
-                            <th>Assists</th>
-                            <th>Réanimations</th>
-                            <th>Moy.&nbsp;Kills/P.</th>
-                            <th>Goulags&nbsp;G.</th>
-                            <th>Goulags&nbsp;P.</th>
-                            <th>Ratio&nbsp;Goulag</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        <tr v-for="playerStat in detailedPlayerStats" :key="playerStat.id">
-                            <td>{{ playerStat.gamertag }}</td>
-                            <td><strong>{{ playerStat.total_score_from_games }}</strong></td>
-                            <td>{{ playerStat.total_kills }}</td>
-                            <td>{{ playerStat.total_deaths }}</td>
-                            <td>{{ playerStat.kd_ratio }}</td>
-                            <td>{{ playerStat.total_assists }}</td>
-                            <td>{{ playerStat.total_revives_done }}</td>
-                            <td>{{ playerStat.average_kills_per_game }}</td>
-                            <td>{{ playerStat.total_gulag_wins }}</td>
-                            <td>{{ playerStat.total_gulag_lost }}</td>
-                            <td>{{ playerStat.gulag_win_ratio }}</td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <hr>
-                <h3>Carte des Points d'Intérêt</h3>
-                <div class="map-interaction-area">
-                    <div class="location-selector-mk-detail">
-                        <label for="location-select-detail">Afficher sur la carte :</label>
-                        <select id="location-select-detail" v-model="selectedMapLocation">
-                        <option :value="null">-- Aucun Lieu --</option>
-                        <option v-for="(details, name) in mapLocations" :key="name" :value="name">
-                            {{ details.name }}
-                        </option>
-                        </select>
+                <div class="stats-and-map-grid">
+                    <div class="detailed-stats-section">
+                        <h3>Statistiques Détaillées</h3>
+                        <h4>Rapport de Combat Complet</h4>
+                        <div class="table-responsive">
+                            <table class="stats-table detailed-summary-table">
+                                <thead>
+                                <tr>
+                                    <th>Opérateur</th>
+                                    <th>Score&nbsp;Final</th>
+                                    <th>Kills</th>
+                                    <th>Morts</th>
+                                    <th>K/D</th>
+                                    <th>Assists</th>
+                                    <th>Réanimations</th>
+                                    <th>Moy.&nbsp;Kills/P.</th>
+                                    <th>Goulags&nbsp;G.</th>
+                                    <th>Goulags&nbsp;P.</th>
+                                    <th>Ratio&nbsp;Goulag</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <tr v-for="playerStat in detailedPlayerStats" :key="`detail-${playerStat.id}`">
+                                    <td>{{ playerStat.gamertag }}</td>
+                                    <td><strong>{{ playerStat.total_score_from_games }}</strong></td>
+                                    <td>{{ playerStat.total_kills }}</td>
+                                    <td>{{ playerStat.total_deaths }}</td>
+                                    <td>{{ playerStat.kd_ratio }}</td>
+                                    <td>{{ playerStat.total_assists }}</td>
+                                    <td>{{ playerStat.total_revives_done }}</td>
+                                    <td>{{ playerStat.average_kills_per_game }}</td>
+                                    <td>{{ playerStat.total_gulag_wins }}</td>
+                                    <td>{{ playerStat.total_gulag_lost }}</td>
+                                    <td>{{ playerStat.gulag_win_ratio }}</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
+                    
+                    <div class="map-section-container">
+                        <h3>Carte des Spawns (Exemple)</h3>
+                         <div class="location-selector-mk-detail">
+                            <label for="location-select-detail">Lieu d'intérêt :</label>
+                            <select id="location-select-detail" v-model="selectedMapLocation">
+                            <option :value="null">-- Aucun Lieu --</option>
+                            <option v-for="(details, name) in mapLocations" :key="name" :value="name">
+                                {{ details.name }}
+                            </option>
+                            </select>
+                        </div>
+                        <div class="map-container-mk-detail">
+                            <img :src="mapWarzoneImage" alt="Carte Warzone" class="map-background-image-detail">
+                            <div
+                              v-if="selectedMapLocation && mapLocations[selectedMapLocation]"
+                              class="map-point-detail"
+                              :style="{ 
+                                left: mapLocations[selectedMapLocation].x + '%', 
+                                top: mapLocations[selectedMapLocation].y + '%' 
+                              }"
+                              :title="mapLocations[selectedMapLocation].name"
+                            >📍</div>
+                            </div>
+                    </div>
+                </div>
 
-                    <div class="map-container-mk-detail">
-                        <img :src="mapWarzoneImage" alt="Carte Warzone" class="map-background-image-detail">
-                        <div
-                          v-if="selectedMapLocation && mapLocations[selectedMapLocation]"
-                          class="map-point-detail"
-                          :style="{ 
-                            left: mapLocations[selectedMapLocation].x + '%', 
-                            top: mapLocations[selectedMapLocation].y + '%' 
-                          }"
-                          :title="mapLocations[selectedMapLocation].name"
-                        >📍</div>
+                <div v-if="chartDatasetsDetail.length > 0" class="chart-section-detail">
+                    <hr style="margin-top: 30px;">
+                    <h3>Évolution des Scores par Partie</h3>
+                    <div v-if="isLoadingGraphDataDetail" class="loading">Chargement du graphique...</div>
+                    <div v-else class="chart-container-detail">
+                        <Line 
+                        :data="chartDataDetail" 
+                        :options="chartOptionsDetail" 
+                        :key="`score-chart-detail-${mkId}`" 
+                        ref="chartInstanceDetailRef" 
+                        />
                     </div>
                 </div>
             </div>
@@ -646,4 +757,153 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .end-mk-btn:hover { background-color: #23272b; }
 .log-redeploy-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 15px; }
 .submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 100px;}
+
+.completed-mk-visuals {
+  margin-top: 20px;
+}
+
+.stats-and-map-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr; /* 2/3 pour les stats, 1/3 pour la carte */
+  gap: 25px;
+  margin-top: 20px;
+  align-items: flex-start; /* Aligner les items en haut */
+}
+
+.detailed-stats-section {
+  /* Prendra l'espace défini par la grille */
+}
+
+.map-section-container {
+  /* Prendra l'espace défini par la grille */
+  position: sticky; /* Pour que la carte reste visible en scrollant les stats */
+  top: 80px; /* Ajustez cette valeur en fonction de la hauteur de votre nav sticky */
+}
+
+
+.completed-mk-visuals h3, .completed-mk-visuals h4 {
+  color: var(--wz-accent-yellow);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.completed-mk-visuals h4 {
+  font-size: 1.1em;
+  margin-top: 20px;
+  margin-bottom: 15px;
+  color: var(--wz-accent-cyan);
+}
+.table-responsive {
+  overflow-x: auto;
+  background-color: rgba(0,0,0,0.2);
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--wz-border-color);
+}
+.detailed-summary-table td, .detailed-summary-table th {
+    padding: 8px 10px;
+    white-space: nowrap; 
+    font-size: 0.85em; /* Un peu plus petit pour plus de colonnes */
+    text-align: center;
+}
+.detailed-summary-table td:first-child, .detailed-summary-table th:first-child {
+    text-align: left;
+    position: sticky; /* Rendre la première colonne fixe lors du scroll horizontal */
+    left: 0;
+    background-color: var(--wz-bg-medium); /* Fond pour la colonne fixe */
+    z-index: 1;
+}
+.detailed-summary-table th:first-child {
+    z-index: 2; /* Pour que l'en-tête de la première colonne soit au-dessus des autres cellules lors du scroll */
+}
+
+.detailed-summary-table strong {
+  font-size: 1.05em; /* Rendre les scores un peu plus visibles */
+  color: var(--wz-text-light);
+}
+
+.map-interaction-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  margin-top: 10px; /* Réduit l'espace au-dessus du sélecteur */
+  padding: 15px;
+  background-color: rgba(0,0,0,0.2);
+  border-radius: 6px;
+  border: 1px solid var(--wz-border-color);
+}
+.location-selector-mk-detail {
+  width: 100%;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.location-selector-mk-detail label {
+  margin-right: 10px;
+  color: var(--wz-text-medium);
+}
+.location-selector-mk-detail select {
+  padding: 8px 10px;
+  background-color: var(--wz-bg-input);
+  color: var(--wz-text-light);
+  border: 1px solid var(--wz-border-color);
+  border-radius: 4px;
+  min-width: 220px;
+}
+.map-container-mk-detail {
+  position: relative;
+  width: 100%;
+  max-width: 400px; /* Ajusté pour la colonne de droite */
+  border: 2px solid var(--wz-border-color);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1; /* Pour une carte carrée, ajustez si besoin */
+}
+.map-background-image-detail {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* S'assure que l'image couvre le conteneur */
+}
+.map-point-detail {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background-color: var(--wz-accent-red);
+  border: 2px solid white;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px black;
+  font-size: 0.8em; /* Pour le numéro de partie */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  z-index: 10; /* Pour être au-dessus de l'image */
+}
+.game-spawn-point { /* Style pour les points de spawn des parties */
+  background-color: var(--wz-accent-cyan); /* Couleur différente */
+  opacity: 0.8;
+}
+
+.chart-section-detail {
+  margin-top: 25px;
+  padding: 15px;
+  background-color: rgba(0,0,0,0.2);
+  border-radius: 6px;
+  border: 1px solid var(--wz-border-color);
+}
+.chart-section-detail h3 {
+  color: var(--wz-accent-yellow);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+}
+.chart-container-detail {
+  height: 400px; /* Ou une hauteur adaptée */
+  position: relative;
+}
 </style>

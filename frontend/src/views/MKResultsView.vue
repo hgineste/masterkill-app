@@ -1,9 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
-// MODIFIÉ: Importer apiClient
-import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
-
+import apiClient from '@/services/apiClient';
 import logoWarzone from '@/assets/images/logo-warzone.png';
 import killImage from '@/assets/images/kill-image.png';
 import reaImage from '@/assets/images/rea-image.png';
@@ -195,14 +193,13 @@ async function fetchDataAndInitBonuses() {
   isLoadingMKDetails.value = true; isLoadingAggregatedStats.value = true;
   error.value = null; bonusAwarded.value = false; bonusAwardLogEntry.value = null; allLinesDrawn.value = false;
   try {
-    // MODIFIÉ: Utiliser apiClient et des URLs relatives
     const mkPromise = apiClient.get(`/masterkillevents/${mkId.value}/`);
     const statsPromise = apiClient.get(`/masterkillevents/${mkId.value}/aggregated-stats/`);
     const [mkResponse, statsResponse] = await Promise.all([mkPromise, statsPromise]);
-    
+
     masterkillEvent.value = mkResponse.data; isLoadingMKDetails.value = false;
     aggregatedStats.value = statsResponse.data; isLoadingAggregatedStats.value = false;
-    
+
     if (aggregatedStats.value) {
       aggregatedStats.value.forEach(pStat => {
         finalScores.value[pStat.player.id.toString()] = pStat.total_score_from_games || 0;
@@ -210,22 +207,27 @@ async function fetchDataAndInitBonuses() {
     }
     if (masterkillEvent.value?.status === 'completed' && !bonusAwarded.value) { awardSingleBonus(); }
     else if (masterkillEvent.value?.status === 'completed' && bonusAwarded.value) { allBonusesProcessedActions(); }
-  } catch (err) { error.value = "Impossible de charger les données."; isLoadingMKDetails.value = false; isLoadingAggregatedStats.value = false;}
+    else { allLinesDrawn.value = true; } // Si pas complété, marquer comme dessiné pour ne pas bloquer
+  } catch (err) {
+    error.value = "Impossible de charger les données.";
+    isLoadingMKDetails.value = false; isLoadingAggregatedStats.value = false;
+    allLinesDrawn.value = true; // En cas d'erreur, marquer aussi comme dessiné
+  }
 }
 
 async function fetchGameByGameScoresForChart() {
-  if (!masterkillEvent.value) return;
-  if (!(masterkillEvent.value.status === 'completed' && bonusAwarded.value)) {
+  if (!masterkillEvent.value) { allLinesDrawn.value = true; return; }
+  // Modifié: Le graphique est toujours pertinent si le MK est complété, même si bonusAwarded est true (consultation ultérieure)
+  if (masterkillEvent.value.status !== 'completed') {
     allLinesDrawn.value = true;
     return;
   }
   isLoadingGraphData.value = true; allLinesDrawn.value = false;
   try {
-    // MODIFIÉ: Utiliser apiClient et une URL relative
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/game-scores/`);
     gameByGameScoresData.value = response.data;
     if (gameByGameScoresData.value?.player_scores_per_game) {
-        prepareChartDataForAnimation();
+        prepareChartDataForAnimation(); // Cette fonction anime
     } else { chartLabels.value = []; chartDatasets.value = []; allLinesDrawn.value = true; }
   } catch (err) { console.error("Erreur fetch scores par partie:", err); allLinesDrawn.value = true; }
   finally { isLoadingGraphData.value = false; }
@@ -291,6 +293,7 @@ function addFinalBonusPointToChart() {
   chartDatasets.value = chartDatasets.value.map(dataset => {
     const originalPlayer = (gameByGameScoresData.value?.participants || masterkillEvent.value?.participants_details || []).find(p => p.gamertag === dataset.label);
     let finalScoreWithBonus = dataset.data.length > 0 ? dataset.data[dataset.data.length - 1] : 0;
+    // Utiliser finalScores qui inclut les points bonus pour le dernier point du graphique
     if (originalPlayer && finalScores.value[originalPlayer.id.toString()] !== undefined) {
       finalScoreWithBonus = finalScores.value[originalPlayer.id.toString()];
     }
@@ -314,20 +317,24 @@ function addFinalBonusPointToChart() {
 }
 
 const rankedPlayers = computed(() => {
-  if (!masterkillEvent.value?.participants_details) return [];
-  return masterkillEvent.value.participants_details.map(player => {
-    const aggStat = aggregatedStats.value.find(s => s.player.id === player.id);
-    const gameScore = aggStat ? (aggStat.total_score_from_games || 0) : 0;
-    const finalScoreValue = finalScores.value[player.id.toString()] !== undefined ? finalScores.value[player.id.toString()] : gameScore;
+  if (!aggregatedStats.value || aggregatedStats.value.length === 0) return [];
+  // Utiliser finalScores pour le classement qui inclut les bonus
+  return Object.entries(finalScores.value).map(([playerId, score]) => {
+    const playerInfo = aggregatedStats.value.find(p => p.player.id.toString() === playerId)?.player;
+    const initialScore = aggregatedStats.value.find(p => p.player.id.toString() === playerId)?.total_score_from_games || 0;
     return {
-      ...player, gameScore: gameScore,
-      bonusAwarded: finalScores.value[player.id.toString()] !== undefined ? (finalScores.value[player.id.toString()] - gameScore) : 0,
-      finalScore: finalScoreValue,
+      playerId: playerId,
+      gamertag: playerInfo?.gamertag || 'N/A',
+      totalScore: score,
+      bonusAwarded: score - initialScore,
     };
-  }).sort((a, b) => b.finalScore - a.finalScore);
+  }).sort((a, b) => b.totalScore - a.totalScore)
+    .map((p, index) => ({ ...p, rank: index + 1 }));
 });
 
-onMounted(() => { fetchDataAndInitBonuses(); });
+onMounted(() => {
+  fetchDataAndInitBonuses();
+});
 </script>
 
 <template>
