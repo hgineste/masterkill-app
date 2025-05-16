@@ -117,7 +117,7 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
   masterkillEvent.value = null; 
   activeGame.value = null;    
   mkAggregatedStats.value = []; 
-  killsBySpawnData.value = []; // Réinitialiser aussi
+  killsBySpawnData.value = [];
   
   let initialActiveGameId = activeGame.value?.id; 
   let initialActiveGameStatus = activeGame.value?.status;
@@ -184,7 +184,12 @@ function initializeCurrentGameStats() {
 function changeStat(playerId, statName, delta) {
   if (currentGameStats.value[playerId]?.[statName] !== undefined && typeof currentGameStats.value[playerId][statName] === 'number') {
     const newValue = currentGameStats.value[playerId][statName] + delta;
-    currentGameStats.value[playerId][statName] = Math.max(0, newValue);
+    // Ne pas laisser les stats simples devenir négatives, sauf si c'est un score
+    if (statName !== 'score_in_game') { // Exemple, adaptez si d'autres stats peuvent être négatives
+        currentGameStats.value[playerId][statName] = Math.max(0, newValue);
+    } else {
+        currentGameStats.value[playerId][statName] = newValue;
+    }
   }
 }
 function updateGulagStatus(playerId, newStatus) {
@@ -211,7 +216,7 @@ async function startOrManageGame(actionToDo = 'start_next_game') {
     if (masterkillEvent.value.status === 'pending' && activeGame.value?.status === 'inprogress') {
       masterkillEvent.value.status = 'inprogress';
     }
-    await fetchMKDetails(true);
+    await fetchMKDetails(true); 
   } catch (err) {
     console.error(`Erreur action '${actionToDo}':`, err.response?.data || err.message || err);
     error.value = `Erreur action '${actionToDo}': ${err.response?.data?.error || err.message}`;
@@ -285,6 +290,7 @@ async function logReviveEvent() {
   try {
     isLoading.value = true; 
     await apiClient.post('/reviveevents/', payload);
+    
     const reviverPlayerId = payload.reviver_player;
     if (currentGameStats.value[reviverPlayerId]) {
       currentGameStats.value[reviverPlayerId].revives_done = (currentGameStats.value[reviverPlayerId].revives_done || 0) + 1;
