@@ -794,4 +794,3 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 30px 0;
 .details-grid.summary-info-results { margin-bottom: 20px; }
 .details-grid.summary-info-results p { margin-bottom: 5px; font-size: 1em; }
 </style>
-</style>
