@@ -42,6 +42,7 @@ const mapLocations = ref({
   'Superstore': { name: 'Superstore', x: 35, y: 50 },
 });
 const selectedMapLocation = ref(null);
+const gameSpawnLocationInput = ref(''); // Pour la saisie du spawn de la partie en cours
 
 const gameByGameScoresDataDetail = ref(null);
 const isLoadingGraphDataDetail = ref(false);
@@ -67,7 +68,10 @@ watch(activeGame, (newVal, oldVal) => {
   if ((newVal && newVal.id && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
      if (!oldVal || newVal.id !== oldVal.id || (newVal.status === 'pending' && oldVal.status !== 'pending') || (newVal.status === 'inprogress' && oldVal.status !== 'inprogress') || !newVal ) {
         initializeCurrentGameStats();
+        gameSpawnLocationInput.value = newVal?.spawn_location || '';
      }
+  } else if (newVal && newVal.status === 'pending') {
+    gameSpawnLocationInput.value = ''; // Réinitialiser pour une nouvelle partie en attente
   }
 }, { deep: true });
 
@@ -104,12 +108,15 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
 
     if (gameInfoFromServer && (gameInfoFromServer.id || gameInfoFromServer.status === 'pending')) {
       activeGame.value = gameInfoFromServer;
+      gameSpawnLocationInput.value = gameInfoFromServer.spawn_location || '';
     } else if (masterkillEvent.value.status === 'pending') {
-      activeGame.value = { game_number: 1, status: 'pending', id: null, masterkill_event: mkId.value };
+      activeGame.value = { game_number: 1, status: 'pending', id: null, masterkill_event: mkId.value, kill_multiplier: 1.0, spawn_location: '' };
+      gameSpawnLocationInput.value = '';
     } else if (masterkillEvent.value.status === 'inprogress' && !gameInfoFromServer) {
       const completedGames = masterkillEvent.value.games?.filter(g => g.status === 'completed').length || 0;
       if (completedGames < masterkillEvent.value.num_games_planned) {
-        activeGame.value = { game_number: completedGames + 1, status: 'pending', id: null, masterkill_event: mkId.value };
+        activeGame.value = { game_number: completedGames + 1, status: 'pending', id: null, masterkill_event: mkId.value, kill_multiplier: 1.0, spawn_location: '' };
+        gameSpawnLocationInput.value = '';
       } else { activeGame.value = null; }
     } else { activeGame.value = null; }
 
@@ -148,10 +155,43 @@ function initializeCurrentGameStats() {
   } else { currentGameStats.value = {}; }
 }
 
-function changeStat(playerId, statName, delta) { /* ... */ }
-function updateGulagStatus(playerId, newStatus) { /* ... */ }
-function toggleRageQuit(playerId) { /* ... */ }
-async function startOrManageGame(actionToDo = 'start_next_game') { /* ... */ }
+function changeStat(playerId, statName, delta) {
+  if (currentGameStats.value[playerId]?.[statName] !== undefined && typeof currentGameStats.value[playerId][statName] === 'number') {
+    const newValue = currentGameStats.value[playerId][statName] + delta;
+    currentGameStats.value[playerId][statName] = Math.max(0, newValue);
+  }
+}
+function updateGulagStatus(playerId, newStatus) {
+  if (currentGameStats.value[playerId]) {
+    currentGameStats.value[playerId].gulag_status = newStatus;
+  }
+}
+function toggleRageQuit(playerId) {
+  if (currentGameStats.value[playerId] && typeof currentGameStats.value[playerId]['rage_quit'] === 'boolean') {
+    currentGameStats.value[playerId]['rage_quit'] = !currentGameStats.value[playerId]['rage_quit'];
+  }
+}
+
+async function startOrManageGame(actionToDo = 'start_next_game') {
+  if (!masterkillEvent.value) return;
+  isLoading.value = true;
+  error.value = null; // Réinitialiser les erreurs
+  try {
+    const response = await apiClient.post(`/masterkillevents/${mkId.value}/manage_game/`, { action: actionToDo });
+    activeGame.value = response.data; 
+    if (masterkillEvent.value.status === 'pending' && activeGame.value?.status === 'inprogress') {
+      masterkillEvent.value.status = 'inprogress';
+    }
+    await fetchMKDetails(true); // Recharger les détails pour refléter le nouvel état du jeu/MK
+  } catch (err) {
+    console.error(`Erreur action '${actionToDo}':`, err.response || err.message || err);
+    error.value = `Erreur action '${actionToDo}': ${err.response?.data?.error || err.message}`;
+    alert(`Erreur action '${actionToDo}': ${err.response?.data?.error || err.message}`); // Garder l'alerte si c'est le comportement souhaité
+    await fetchMKDetails(false); // Recharger pour avoir l'état actuel en cas d'erreur
+  } finally {
+    isLoading.value = false;
+  }
+}
 
 async function handleMKStatusChange(newStatus) {
   if (!masterkillEvent.value) return;
@@ -173,12 +213,40 @@ function startFirstGameOrNext() { startOrManageGame('start_next_game'); }
 function pauseMK() { handleMKStatusChange('paused'); }
 function resumeMK() { handleMKStatusChange('inprogress'); }
 async function endMK() { if(confirm("Terminer ce Masterkill ?")) { await handleMKStatusChange('completed'); }}
-async function logRedeployEvent() { /* ... */ }
+
+async function logRedeployEvent() {
+  redeployError.value = null;
+  if (!activeGame.value?.id) { redeployError.value = "Partie non active."; return; }
+  if (!redeployData.value.redeployer_player_id || !redeployData.value.redeployed_player_id) {
+    redeployError.value = "Sélectionner les deux joueurs."; return;
+  }
+  if (redeployData.value.redeployer_player_id === redeployData.value.redeployed_player_id) {
+    redeployError.value = "Un joueur ne peut se redéployer lui-même."; return;
+  }
+  const payload = { game: activeGame.value.id, redeployer_player: redeployData.value.redeployer_player_id, redeployed_player: redeployData.value.redeployed_player_id };
+  try {
+    isLoading.value = true;
+    await apiClient.post('/redeployevents/', payload);
+    const redeployedPlayerId = payload.redeployed_player;
+    if (currentGameStats.value[redeployedPlayerId]) {
+      currentGameStats.value[redeployedPlayerId].times_redeployed_by_teammate = (currentGameStats.value[redeployedPlayerId].times_redeployed_by_teammate || 0) + 1;
+    }
+    alert(`Redéploiement enregistré !`);
+    redeployData.value = { redeployer_player_id: null, redeployed_player_id: null };
+    showRedeployLogForm.value = false;
+  } catch (err) {
+    redeployError.value = `Erreur serveur: ${err.response?.data?.detail || err.message}`;
+  } finally { isLoading.value = false; }
+}
 
 async function handleEndGame() {
-  if (!activeGame.value || activeGame.value.status !== 'inprogress') { /* ... */ return; }
-  if (!masterkillEvent.value?.participants_details) { /* ... */ return; }
-  if (!confirm(`Terminer Partie ${activeGame.value.game_number} et enregistrer scores ?`)) return;
+  if (!activeGame.value || activeGame.value.status !== 'inprogress') {
+    alert("Aucune partie en cours à terminer."); return;
+  }
+  if (!masterkillEvent.value?.participants_details) {
+    alert("Données participants manquantes."); return;
+  }
+  if (!confirm(`Terminer Partie ${activeGame.value.game_number} et enregistrer scores (Spawn: ${gameSpawnLocationInput.value || 'Non défini'}) ?`)) return;
 
   const playerStatsPayloadList = masterkillEvent.value.participants_details.map(player => {
     const stats = currentGameStats.value[player.id] || {};
@@ -193,11 +261,16 @@ async function handleEndGame() {
   });
   isLoading.value = true;
   try {
+    const payloadForEndGame = { 
+        player_stats: playerStatsPayloadList,
+        spawn_location: gameSpawnLocationInput.value || null 
+    };
     const response = await apiClient.post(
       `/games/${activeGame.value.id}/complete/`,
-      { player_stats: playerStatsPayloadList }
+      payloadForEndGame
     );
     alert(response.data.message || "Partie terminée!");
+    gameSpawnLocationInput.value = ''; // Réinitialiser après l'envoi
 
     if (response.data.mk_ended || response.data.mk_status === 'completed') {
       await fetchMKDetails(false);
@@ -312,7 +385,7 @@ const showScoreSummaryTable = computed(() => {
          mkAggregatedStats.value.length > 0 &&
          (
            masterkillEvent.value.status === 'paused' ||
-           masterkillEvent.value.status === 'completed' || 
+          //  masterkillEvent.value.status === 'completed' || // Ne plus afficher si complété, car les stats détaillées prennent le relais
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'completed') ||
            (masterkillEvent.value.status === 'inprogress' && activeGame.value?.status === 'pending' && completedGamesCountInMK.value > 0)
          );
@@ -370,7 +443,6 @@ const detailedPlayerStats = computed(() => {
   return mkAggregatedStats.value.map(pStat => {
     const kills = pStat.total_kills || 0;
     const deaths = pStat.total_deaths || 0;
-    // Utiliser completedGamesCountInMK pour le nombre de parties du MK si games_played_in_mk n'est pas dans pStat
     const gamesPlayed = pStat.games_played_in_mk ?? completedGamesCountInMK.value ?? 0;
     const gulagWins = pStat.total_gulag_wins || 0;
     const gulagLost = pStat.total_gulag_lost || 0;
@@ -381,7 +453,7 @@ const detailedPlayerStats = computed(() => {
       total_kills: kills,
       total_deaths: deaths,
       kd_ratio: calculateKDRatio(kills, deaths),
-      total_assists: pStat.total_assists || 0,
+      total_assists: pStat.total_assists || 0, 
       total_revives_done: pStat.total_revives_done || 0,
       average_kills_per_game: gamesPlayed > 0 ? (kills / gamesPlayed).toFixed(1) : '0.0',
       total_gulag_wins: gulagWins,
@@ -492,7 +564,16 @@ const detailedPlayerStats = computed(() => {
             🔥 Multiplicateur de Kills x{{ activeGame.kill_multiplier }} ACTIF pour cette partie ! 🔥
           </div>
 
-          <div v-if="isGameCurrentlyInProgress">
+          <div v-if="isGameCurrentlyInProgress" class="game-input-section">
+            <div class="form-group spawn-input-group">
+              <label for="game-spawn-location">Lieu de Spawn de la Partie :</label>
+              <select id="game-spawn-location" v-model="gameSpawnLocationInput">
+                <option value="">-- Sélectionner Spawn --</option>
+                <option v-for="(details, name) in mapLocations" :key="`spawn-opt-${name}`" :value="name">
+                  {{ details.name }}
+                </option>
+              </select>
+            </div>
             <table class="stats-table">
               <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. Done</th><th>Goulag</th><th>Redéployé</th><th>Rage Quit?</th></tr></thead>
               <tbody>
