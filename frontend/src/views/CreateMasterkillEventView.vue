@@ -1,7 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue';
-// MODIFIÉ: Importer apiClient
-import apiClient from '@/services/apiClient'; // Assurez-vous que ce chemin est correct
+import apiClient from '@/services/apiClient';
 import { useRouter } from 'vue-router';
 import logoWarzone from '@/assets/images/logo-warzone.png';
 
@@ -19,6 +18,8 @@ const newMK = ref({
   points_humiliation: -1,
   top1_solo_ends_mk: false,
   selected_gage_text: '',
+  has_bonus_reel: true, // NOUVEAU: Option pour la roue des bonus
+  has_kill_multipliers: false, // NOUVEAU: Option pour les multiplicateurs de kills
 });
 const createError = ref(null);
 
@@ -61,10 +62,11 @@ async function handleCreateMasterkill() {
     top1_solo_ends_mk: newMK.value.top1_solo_ends_mk,
     participant_gamertags: validPlayerNames,
     custom_gage_input_text: newMK.value.selected_gage_text.trim() === '' ? null : newMK.value.selected_gage_text.trim(),
+    has_bonus_reel: newMK.value.has_bonus_reel, // Envoi de la nouvelle option
+    has_kill_multipliers: newMK.value.has_kill_multipliers, // Envoi de la nouvelle option
   };
 
   try {
-    // MODIFIÉ: Utiliser apiClient et une URL relative
     const response = await apiClient.post('/masterkillevents/', payload);
     router.push({ name: 'masterkill-detail', params: { id: response.data.id } });
   } catch (err) {
@@ -146,10 +148,18 @@ async function handleCreateMasterkill() {
               </div>
 
               <div class="form-section">
-                <h4 class="form-subtitle">CONDITIONS SPÉCIALES :</h4>
+                <h4 class="form-subtitle">CONDITIONS SPÉCIALES & BONUS :</h4>
                 <div class="form-group form-group-checkbox">
                   <input type="checkbox" id="mk-top1-ends" v-model="newMK.top1_solo_ends_mk">
                   <label for="mk-top1-ends" class="checkbox-label">TOP 1 solo met fin au MK ?</label>
+                </div>
+                <div class="form-group form-group-checkbox">
+                  <input type="checkbox" id="mk-has-bonus-reel" v-model="newMK.has_bonus_reel">
+                  <label for="mk-has-bonus-reel" class="checkbox-label">Activer la roue des bonus de fin de MK ?</label>
+                </div>
+                <div class="form-group form-group-checkbox">
+                  <input type="checkbox" id="mk-has-kill-multipliers" v-model="newMK.has_kill_multipliers">
+                  <label for="mk-has-kill-multipliers" class="checkbox-label">Activer les multiplicateurs de kills aléatoires ?</label>
                 </div>
               </div>
             </div>
@@ -164,7 +174,6 @@ async function handleCreateMasterkill() {
 </template>
 
 <style scoped>
-/* Styles (inchangés par rapport à votre version précédente) */
 .create-masterkill-view {
   min-height: 100vh;
   font-family: "Agency FB", "Roboto Condensed", Arial, sans-serif;
@@ -175,7 +184,6 @@ async function handleCreateMasterkill() {
   padding-bottom: 40px;
   box-sizing: border-box;
 }
-
 .page-header {
   background-color: rgba(0,0,0,0.6); padding: 20px; text-align: center;
   border-bottom: 3px solid var(--wz-accent-yellow); margin-bottom: 30px;
@@ -185,8 +193,6 @@ async function handleCreateMasterkill() {
   color: var(--wz-text-light); font-size: 2.2em; text-transform: uppercase;
   letter-spacing: 3px; margin: 0; border-bottom: none; font-weight: 700;
 }
-
-
 .content-wrapper-form {
   width: 80vw;
   margin-left: auto;
@@ -196,25 +202,21 @@ async function handleCreateMasterkill() {
   border-radius: 8px;
   box-shadow: 0 5px 25px rgba(0,0,0,0.7);
 }
-
 .form-layout-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 20px 40px;
 }
-
 @media (min-width: 992px) {
   .form-layout-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
-
 .form-column-main, .form-column-secondary {
   display: flex;
   flex-direction: column;
   gap: 25px;
 }
-
 .form-section {
   margin-bottom: 0;
   padding-bottom: 20px;
@@ -225,21 +227,16 @@ async function handleCreateMasterkill() {
   border-bottom: none;
   padding-bottom: 0;
 }
-
 .layout-cols-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; }
 .player-inputs-grid { display: grid; gap: 15px; }
-
 .points-grid.compact-points-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 15px 18px;
 }
-
-.form-group { margin-bottom: 20px; } /* Rétablir un peu de marge pour espacer les champs dans une section */
-/* Retirer la marge du dernier form-group d'une section si elle a une bordure en bas */
-.form-section > .form-group:last-child {
-    margin-bottom: 0;
-}
+.form-group { margin-bottom: 20px; }
+.form-group:last-child { margin-bottom: 0; }
+.form-section > .form-group:last-child { margin-bottom: 0; }
 
 .form-group label { display: block; margin-bottom: 8px; font-weight: normal; color: var(--wz-text-medium); font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.5px;}
 .form-group input[type="text"],

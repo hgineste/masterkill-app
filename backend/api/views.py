@@ -7,15 +7,14 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db.models import Sum, Count, Q, F, FloatField, Case, When
 from rest_framework.permissions import IsAuthenticated
-from .serializers import UserSerializer 
-
-from .serializers import UserRegistrationSerializer
+import random # Ajouté pour les multiplicateurs
 
 from .models import Gage, MasterkillEvent, Player, Game, GamePlayerStats, RedeployEvent
 from .serializers import (
     GageSerializer, MasterkillEventSerializer, PlayerSerializer,
     GameSerializer, RedeployEventSerializer, GamePlayerStatsSerializer,
-    AggregatedPlayerStatsSerializer, AllTimePlayerStatsSerializer # AllTimePlayerStatsSerializer importé
+    AggregatedPlayerStatsSerializer, AllTimePlayerStatsSerializer,
+    UserRegistrationSerializer, UserSerializer
 )
 
 @api_view(['GET'])
@@ -30,158 +29,217 @@ class UserRegistrationView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
 
 class CurrentUserView(APIView):
-    permission_classes = [IsAuthenticated] # Seuls les utilisateurs connectés peuvent accéder
-
+    permission_classes = [IsAuthenticated]
     def get(self, request):
-        serializer = UserSerializer(request.user) # Sérialise l'utilisateur connecté
+        serializer = UserSerializer(request.user)
         return Response(serializer.data)
     
 class MasterkillAggregatedStatsView(APIView):
     def get(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         completed_games = mk_event.games.filter(status='completed')
-
         aggregated_stats_list = []
         for player in mk_event.participants.all():
             player_data_serialized = PlayerSerializer(player).data
-
             stats = GamePlayerStats.objects.filter(
-                game__in=completed_games,
-                player=player
+                game__in=completed_games, player=player
             ).aggregate(
                 total_kills=Sum('kills', default=0),
                 total_deaths=Sum('deaths', default=0),
                 total_assists=Sum('assists', default=0),
                 total_gulag_wins=Count('gulag_status', filter=Q(gulag_status='won')),
+                total_gulag_lost=Count('gulag_status', filter=Q(gulag_status='lost')), # Ajout pour ratio goulag
                 total_revives_done=Sum('revives_done', default=0),
                 total_times_executed_enemy=Sum('times_executed_enemy', default=0),
                 total_times_got_executed=Sum('times_got_executed', default=0),
-                total_rage_quits=Count('rage_quit', filter=Q(rage_quit=True)), # default=0 retiré
+                total_rage_quits=Count('rage_quit', filter=Q(rage_quit=True)),
                 total_times_redeployed_by_teammate=Sum('times_redeployed_by_teammate', default=0),
                 total_score_from_games=Sum('score_in_game', default=0),
-                games_played=Count('game', distinct=True) # default=0 retiré
+                games_played_in_mk=Count('game', distinct=True) # Renommé pour clarté
             )
-
-            # Construire le dictionnaire pour le serializer ou la réponse directe
-            # Les agrégats Count retourneront 0 si rien n'est trouvé, Sum avec default=0 aussi.
             player_aggregated_data = {
                 'player': player_data_serialized,
                 'total_kills': stats['total_kills'],
                 'total_deaths': stats['total_deaths'],
                 'total_assists': stats['total_assists'],
                 'total_gulag_wins': stats['total_gulag_wins'],
+                'total_gulag_lost': stats['total_gulag_lost'],
                 'total_revives_done': stats['total_revives_done'],
                 'total_times_executed_enemy': stats['total_times_executed_enemy'],
                 'total_times_got_executed': stats['total_times_got_executed'],
                 'total_rage_quits': stats['total_rage_quits'],
                 'total_times_redeployed_by_teammate': stats['total_times_redeployed_by_teammate'],
                 'total_score_from_games': stats['total_score_from_games'],
-                'games_played': stats['games_played']
+                'games_played_in_mk': stats['games_played_in_mk']
             }
             aggregated_stats_list.append(player_aggregated_data)
-
-        # Si vous utilisez AggregatedPlayerStatsSerializer pour la sortie :
         serializer = AggregatedPlayerStatsSerializer(aggregated_stats_list, many=True)
         return Response(serializer.data)
 
 class MasterkillEventListCreateView(generics.ListCreateAPIView):
-    queryset = MasterkillEvent.objects.all().order_by('-created_at') 
-    serializer_class = MasterkillEventSerializer 
+    queryset = MasterkillEvent.objects.all().order_by('-created_at')
+    serializer_class = MasterkillEventSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        participant_gamertags_list = serializer.validated_data.pop('participant_gamertags', [])
-        creator = request.user if request.user.is_authenticated else None
-        instance = serializer.save(creator=creator)
-        player_instances = []
-        if participant_gamertags_list:
-            for gamertag_str in participant_gamertags_list:
-                if gamertag_str and gamertag_str.strip():
-                    player, _ = Player.objects.get_or_create(gamertag=gamertag_str.strip())
-                    player_instances.append(player)
-        if player_instances: instance.participants.set(player_instances)
-        response_serializer = self.get_serializer(instance)
-        headers = self.get_success_headers(response_serializer.data)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+    def perform_create(self, serializer): # Utiliser perform_create est plus idiomatique
+        serializer.save(creator=self.request.user)
 
 class MasterkillEventRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     queryset = MasterkillEvent.objects.all()
     serializer_class = MasterkillEventSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly] # Ajustez les permissions si nécessaire pour Update/Destroy
 
 class ManageGameView(APIView):
+    permission_classes = [permissions.IsAuthenticated] 
+
     def post(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
+        # S'assurer que seul le créateur ou un admin peut gérer le jeu (exemple)
+        # if request.user != mk_event.creator and not request.user.is_staff:
+        #     return Response({"error": "Vous n'êtes pas autorisé à gérer ce MK."}, status=status.HTTP_403_FORBIDDEN)
+
         action_type = request.data.get('action')
+
         if action_type == 'start_next_game':
-            if mk_event.status in ['completed', 'cancelled']: return Response({"error": "Ce MK est terminé ou annulé."}, status=status.HTTP_400_BAD_REQUEST)
+            if mk_event.status in ['completed', 'cancelled']:
+                return Response({"error": "Ce MK est terminé ou annulé."}, status=status.HTTP_400_BAD_REQUEST)
+
             current_inprogress_game = mk_event.games.filter(status='inprogress').first()
-            if current_inprogress_game: return Response(GameSerializer(current_inprogress_game).data, status=status.HTTP_200_OK)
-            next_game_number = 1
-            last_game = mk_event.games.order_by('-game_number').first()
-            if last_game:
-                if last_game.status == 'completed': next_game_number = last_game.game_number + 1
+            if current_inprogress_game:
+                return Response(GameSerializer(current_inprogress_game).data, status=status.HTTP_200_OK)
+
+            next_game_to_start = mk_event.games.filter(status='pending').order_by('game_number').first()
+
+            if not next_game_to_start:
+                last_completed_game_number = 0
+                last_game = mk_event.games.order_by('-game_number').first()
+                if last_game:
+                    last_completed_game_number = last_game.game_number
+                
+                if last_completed_game_number >= mk_event.num_games_planned:
+                    return Response({"error": "Toutes les parties prévues ont été jouées ou sont en cours."}, status=status.HTTP_400_BAD_REQUEST)
+                
+                next_game_number = last_completed_game_number + 1
+                next_game_to_start = Game.objects.create(
+                    masterkill_event=mk_event,
+                    game_number=next_game_number,
+                    status='pending' 
+                )
+            
+            next_game_to_start.status = 'inprogress'
+            next_game_to_start.start_time = timezone.now()
+
+            if mk_event.has_kill_multipliers:
+                if random.random() < 0.10: # 10% de chance
+                    next_game_to_start.kill_multiplier = random.choice([1.0, 1.5, 2.0, 2.5])
                 else:
-                    pending_game_to_start = mk_event.games.filter(status='pending', game_number=last_game.game_number).first()
-                    if pending_game_to_start:
-                        pending_game_to_start.status = 'inprogress'; pending_game_to_start.start_time = timezone.now(); pending_game_to_start.save()
-                        if mk_event.status == 'pending': mk_event.status = 'inprogress'; mk_event.effective_start_at = timezone.now(); mk_event.save()
-                        return Response(GameSerializer(pending_game_to_start).data, status=status.HTTP_200_OK)
-                    else: return Response({"error": f"La partie {last_game.game_number} doit être gérée."}, status=status.HTTP_400_BAD_REQUEST)
-            if next_game_number > mk_event.num_games_planned: return Response({"error": "Toutes les parties prévues ont été jouées."}, status=status.HTTP_400_BAD_REQUEST)
-            game, created = Game.objects.get_or_create(masterkill_event=mk_event, game_number=next_game_number, defaults={'status': 'inprogress', 'start_time': timezone.now()})
-            if not created and game.status != 'inprogress': game.status = 'inprogress'; game.start_time = timezone.now(); game.save()
-            if mk_event.status == 'pending': mk_event.status = 'inprogress'; mk_event.effective_start_at = timezone.now(); mk_event.save()
-            return Response(GameSerializer(game).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+                    next_game_to_start.kill_multiplier = 1.0
+            else:
+                next_game_to_start.kill_multiplier = 1.0
+            
+            next_game_to_start.save()
+
+            if mk_event.status == 'pending':
+                mk_event.status = 'inprogress'
+                if not mk_event.effective_start_at:
+                    mk_event.effective_start_at = timezone.now()
+                mk_event.save()
+            
+            return Response(GameSerializer(next_game_to_start).data, status=status.HTTP_200_OK)
+
         return Response({"error": "Action non reconnue dans manage_game."}, status=status.HTTP_400_BAD_REQUEST)
 
 class RedeployEventCreateView(generics.CreateAPIView):
     queryset = RedeployEvent.objects.all()
     serializer_class = RedeployEventSerializer
+    permission_classes = [permissions.IsAuthenticated] 
+
     def perform_create(self, serializer):
         redeploy_event = serializer.save()
-        stats, _ = GamePlayerStats.objects.get_or_create(game=redeploy_event.game, player=redeploy_event.redeployed_player)
+        stats, _ = GamePlayerStats.objects.get_or_create(
+            game=redeploy_event.game, 
+            player=redeploy_event.redeployed_player,
+            defaults={'game_id': redeploy_event.game.id, 'player_id': redeploy_event.redeployed_player.id}
+        )
         stats.times_redeployed_by_teammate = (stats.times_redeployed_by_teammate or 0) + 1
         stats.save()
 
 class EndGameAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
     def post(self, request, game_pk=None):
         game_instance = get_object_or_404(Game, pk=game_pk)
         mk_event = game_instance.masterkill_event
-        if game_instance.status == 'completed': return Response({"message": "Cette partie est déjà terminée."}, status=status.HTTP_400_BAD_REQUEST)
-        if mk_event.status != 'inprogress': return Response({"error": "Le Masterkill n'est pas en cours."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # S'assurer que seul le créateur ou un admin peut terminer la partie (exemple)
+        # if request.user != mk_event.creator and not request.user.is_staff:
+        #     return Response({"error": "Vous n'êtes pas autorisé à terminer cette partie."}, status=status.HTTP_403_FORBIDDEN)
+
+        if game_instance.status == 'completed':
+            return Response({"message": "Cette partie est déjà terminée."}, status=status.HTTP_400_BAD_REQUEST)
+        if mk_event.status != 'inprogress' and mk_event.status != 'paused': # Permettre de terminer une partie si MK est en pause
+            return Response({"error": "Le Masterkill n'est pas en cours ou en pause."}, status=status.HTTP_400_BAD_REQUEST)
+
         player_stats_data_list = request.data.get('player_stats', [])
-        if not isinstance(player_stats_data_list, list): return Response({"error": "Le champ 'player_stats' doit être une liste."}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(player_stats_data_list, list):
+            return Response({"error": "Le champ 'player_stats' doit être une liste."}, status=status.HTTP_400_BAD_REQUEST)
+
         for player_data in player_stats_data_list:
             if not player_data: continue
             player_id = player_data.get('player_id')
             if not player_id: continue
-            try: player_instance = Player.objects.get(pk=player_id)
-            except Player.DoesNotExist: continue
-            kills = int(player_data.get('kills', 0)); deaths = int(player_data.get('deaths', 0)); assists = int(player_data.get('assists', 0))
+            try:
+                player_instance = Player.objects.get(pk=player_id)
+            except Player.DoesNotExist:
+                continue
+
+            kills = int(player_data.get('kills', 0))
+            deaths = int(player_data.get('deaths', 0))
+            # assists = int(player_data.get('assists', 0)) # On ne l'utilise plus pour le score
             gulag_status = player_data.get('gulag_status', 'not_played')
-            revives_done = int(player_data.get('revives_done', 0)); times_executed_enemy = int(player_data.get('times_executed_enemy', 0))
-            times_got_executed = int(player_data.get('times_got_executed', 0)); rage_quit = bool(player_data.get('rage_quit', False))
+            revives_done = int(player_data.get('revives_done', 0))
+            times_executed_enemy = int(player_data.get('times_executed_enemy', 0))
+            times_got_executed = int(player_data.get('times_got_executed', 0))
+            rage_quit = bool(player_data.get('rage_quit', False))
             times_redeployed_by_teammate = int(player_data.get('times_redeployed_by_teammate', 0))
-            score = 0; score += kills * mk_event.points_kill; score += revives_done * mk_event.points_rea
-            if gulag_status == 'won': score += mk_event.points_goulag_win
+
+            score = 0
+            score += (kills * mk_event.points_kill * game_instance.kill_multiplier) # Utilisation du multiplicateur
+            score += revives_done * mk_event.points_rea
+            if gulag_status == 'won':
+                score += mk_event.points_goulag_win
             score += times_redeployed_by_teammate * mk_event.points_redeploiement
-            if rage_quit: score += mk_event.points_rage_quit
-            score += times_executed_enemy * mk_event.points_execution; score += times_got_executed * mk_event.points_humiliation
+            if rage_quit:
+                score += mk_event.points_rage_quit
+            score += times_executed_enemy * mk_event.points_execution
+            score += times_got_executed * mk_event.points_humiliation
+            
             stats_defaults = {
-                'kills': kills, 'deaths': deaths, 'assists': assists, 'gulag_status': gulag_status,
-                'revives_done': revives_done, 'times_executed_enemy': times_executed_enemy,
-                'times_got_executed': times_got_executed, 'rage_quit': rage_quit,
-                'times_redeployed_by_teammate': times_redeployed_by_teammate, 'score_in_game': score
+                'kills': kills, 'deaths': deaths, 'assists': player_data.get('assists', 0), # Garder assists pour info
+                'gulag_status': gulag_status, 'revives_done': revives_done,
+                'times_executed_enemy': times_executed_enemy, 'times_got_executed': times_got_executed,
+                'rage_quit': rage_quit, 'times_redeployed_by_teammate': times_redeployed_by_teammate,
+                'score_in_game': score
             }
-            GamePlayerStats.objects.update_or_create(game=game_instance, player=player_instance, defaults=stats_defaults)
-        game_instance.status = 'completed'; game_instance.end_time = timezone.now(); game_instance.save()
+            GamePlayerStats.objects.update_or_create(
+                game=game_instance, player=player_instance,
+                defaults=stats_defaults
+            )
+        
+        game_instance.status = 'completed'
+        game_instance.end_time = timezone.now()
+        game_instance.save()
+
         completed_games_count = mk_event.games.filter(status='completed').count()
         mk_status_updated_to_completed = False
         if completed_games_count >= mk_event.num_games_planned:
-            mk_event.status = 'completed'; mk_event.ended_at = timezone.now(); mk_event.save()
+            mk_event.status = 'completed'
+            mk_event.ended_at = timezone.now()
+            # La logique pour déterminer le 'winner' devrait être ici ou dans un signal
+            # après que tous les scores soient finaux.
+            mk_event.save()
             mk_status_updated_to_completed = True
+            
         return Response({
             "message": f"Partie {game_instance.game_number} terminée.", "game_id": game_instance.id,
             "game_status": game_instance.status, "mk_status": mk_event.status,
@@ -190,6 +248,7 @@ class EndGameAPIView(APIView):
 
 class AllTimePlayerRankingView(generics.ListAPIView):
     serializer_class = AllTimePlayerStatsSerializer
+    permission_classes = [permissions.AllowAny] # Classement public
 
     def get_queryset(self):
         players_with_stats = Player.objects.filter(game_stats__game__status='completed').distinct()
@@ -199,7 +258,7 @@ class AllTimePlayerRankingView(generics.ListAPIView):
                 total_score=Sum('score_in_game', default=0),
                 total_kills=Sum('kills', default=0),
                 total_deaths=Sum('deaths', default=0),
-                total_assists=Sum('assists', default=0),
+                total_assists=Sum('assists', default=0), # Reste pour info
                 total_revives_done=Sum('revives_done', default=0),
                 total_gulag_wins=Count('gulag_status', filter=Q(gulag_status='won')),
                 total_rage_quits=Count('rage_quit', filter=Q(rage_quit=True)),
@@ -207,48 +266,66 @@ class AllTimePlayerRankingView(generics.ListAPIView):
                 games_played=Count('game', distinct=True)
             )
             mks_won = MasterkillEvent.objects.filter(winner=player, status='completed').count()
-            kd_ratio = round((stats['total_kills'] or 0) / (stats['total_deaths'] or 1), 2) if (stats['total_deaths'] or 0) > 0 else (stats['total_kills'] or 0)
+            
+            deaths_for_kd = stats['total_deaths'] if stats['total_deaths'] > 0 else 1
+            kd_ratio = round((stats['total_kills'] or 0) / deaths_for_kd, 2)
+            if stats['total_deaths'] == 0 and stats['total_kills'] > 0 : kd_ratio = stats['total_kills'] # Pour afficher X au lieu de X.00 si 0 mort
 
-            # Créez un dictionnaire qui correspond aux champs de votre sérialiseur
+
             player_data = {
-                'player_id': player.id,
-                'gamertag': player.gamertag,
-                'total_score': stats['total_score'],
-                'total_kills': stats['total_kills'],
-                'total_deaths': stats['total_deaths'],
-                'total_assists': stats['total_assists'],
-                'total_revives_done': stats['total_revives_done'],
-                'total_gulag_wins': stats['total_gulag_wins'],
-                'total_rage_quits': stats['total_rage_quits'],
-                'total_times_redeployed': stats['total_times_redeployed'],
-                'games_played': stats['games_played'],
-                'mks_won': mks_won,
-                'kd_ratio': kd_ratio
+                'player_id': player.id, 'gamertag': player.gamertag,
+                'total_score': stats['total_score'], 'total_kills': stats['total_kills'],
+                'total_deaths': stats['total_deaths'], 'total_assists': stats['total_assists'],
+                'total_revives_done': stats['total_revives_done'], 'total_gulag_wins': stats['total_gulag_wins'],
+                'total_rage_quits': stats['total_rage_quits'], 'total_times_redeployed': stats['total_times_redeployed'],
+                'games_played': stats['games_played'], 'mks_won': mks_won, 'kd_ratio': kd_ratio
             }
             player_rankings.append(player_data)
+        
         player_rankings.sort(key=lambda x: x['total_score'], reverse=True)
         return player_rankings
 
-
 class MasterkillGameScoresView(APIView):
+    permission_classes = [permissions.AllowAny] # Ou IsAuthenticated si les scores sont privés
+
     def get(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         response_data = {
-            'mk_id': mk_event.id, 'mk_name': mk_event.name, 'num_games_planned': mk_event.num_games_planned,
+            'mk_id': mk_event.id, 'mk_name': mk_event.name, 
+            'num_games_planned': mk_event.num_games_planned, # Nombre total de parties prévues
             'participants': PlayerSerializer(mk_event.participants.all(), many=True).data,
             'player_scores_per_game': {}
         }
-        completed_games = mk_event.games.filter(status='completed').order_by('game_number')
+        
+        # Utiliser le nombre réel de parties complétées pour l'itération si inférieur au planifié
+        completed_games_instances = mk_event.games.filter(status='completed').order_by('game_number')
+        num_games_actually_completed = completed_games_instances.count()
+        
+        # S'il n'y a pas de parties complétées, on ne peut pas construire les scores par partie.
+        if num_games_actually_completed == 0:
+             for player in mk_event.participants.all():
+                response_data['player_scores_per_game'][str(player.id)] = []
+             return Response(response_data)
+
         for player in mk_event.participants.all():
             player_id_str = str(player.id)
             response_data['player_scores_per_game'][player_id_str] = []
             cumulative_score = 0
-            for i in range(1, mk_event.num_games_planned + 1):
-                game_for_this_number = completed_games.filter(game_number=i).first()
-                current_game_score = 0
+            
+            # Itérer sur les numéros de partie de 1 jusqu'au nombre de parties complétées
+            for i in range(1, num_games_actually_completed + 1):
+                game_for_this_number = completed_games_instances.filter(game_number=i).first()
+                # Le score de la partie est 0 si la partie n'existe pas (ne devrait pas arriver ici)
+                # ou si le joueur n'a pas de stats pour cette partie.
+                current_game_score_for_this_game_only = 0
                 if game_for_this_number:
                     stat_entry = GamePlayerStats.objects.filter(game=game_for_this_number, player=player).first()
-                    if stat_entry: current_game_score = stat_entry.score_in_game
-                cumulative_score += current_game_score
+                    if stat_entry:
+                        current_game_score_for_this_game_only = stat_entry.score_in_game
+                
+                cumulative_score += current_game_score_for_this_game_only
                 response_data['player_scores_per_game'][player_id_str].append(cumulative_score)
+        
+        # Ajouter le nombre de parties réellement jouées/complétées pour le graphique
+        response_data['num_games_played'] = num_games_actually_completed
         return Response(response_data)

@@ -3,7 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import apiClient from '@/services/apiClient';
 import logoWarzone from '@/assets/images/logo-warzone.png';
-import mapWarzoneImage from '@/assets/images/map_warzone_placeholder.jpg'; // REMPLACEZ par votre image
+import mapWarzoneImage from '@/assets/images/map_warzone_placeholder.jpg';
 
 import { Line } from 'vue-chartjs';
 import {
@@ -47,21 +47,21 @@ const gameByGameScoresDataDetail = ref(null);
 const isLoadingGraphDataDetail = ref(false);
 const chartLabelsDetail = ref([]);
 const chartDatasetsDetail = ref([]);
+const chartInstanceDetailRef = ref(null); // Ajouté pour la référence au graphique
 
 const chartDataDetail = computed(() => ({ labels: chartLabelsDetail.value, datasets: chartDatasetsDetail.value }));
 const chartOptionsDetail = ref({
   responsive: true, maintainAspectRatio: false, tension: 0.4,
-  animation: { duration: 0 }, // Pas d'animation point par point pour la vue détail
+  animation: { duration: 0 },
   scales: {
     y: { beginAtZero: true, ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } },
     x: { ticks: { color: 'var(--wz-text-medium)', padding: 5 }, grid: { color: 'var(--wz-border-color)' } }
   },
   plugins: {
-    legend: { display: true, position: 'bottom', labels: { color: 'var(--wz-text-light)'} }, // Afficher la légende
+    legend: { display: true, position: 'bottom', labels: { color: 'var(--wz-text-light)'} },
     tooltip: { titleFont: { weight: 'bold'}, bodyFont: {size: 14} },
   }
 });
-
 
 watch(activeGame, (newVal, oldVal) => {
   if ((newVal && newVal.id && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
@@ -85,69 +85,53 @@ async function fetchAggregatedStats() {
 }
 
 async function fetchMKDetails(resetStatsIfNeeded = true) {
-  isLoading.value = true;
-  error.value = null;
-  masterkillEvent.value = null; // Initialiser ou réinitialiser explicitement
-  activeGame.value = null;    // Idem pour les états dépendants
-  mkAggregatedStats.value = [];
-
-  let initialActiveGameId = activeGame.value?.id; // Sera undefined, c'est ok
-  let initialActiveGameStatus = activeGame.value?.status; // Sera undefined, c'est ok
+  isLoading.value = true; error.value = null;
+  masterkillEvent.value = null; 
+  activeGame.value = null;    
+  mkAggregatedStats.value = []; 
+  
+  let initialActiveGameId = activeGame.value?.id; 
+  let initialActiveGameStatus = activeGame.value?.status;
 
   try {
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/`);
-    
-    // Vérification cruciale après l'appel API
     if (!response.data) {
-      console.error("Aucune donnée reçue de l'API pour MK ID:", mkId.value);
       error.value = `Aucune donnée reçue pour l'événement MK ${mkId.value}.`;
-      isLoading.value = false;
-      return; // Sortir tôt
+      isLoading.value = false; return;
     }
     masterkillEvent.value = response.data;
-
-    // Ajouter des gardes avant d'accéder aux propriétés de masterkillEvent.value
-    // Beaucoup de vos `computed properties` et le template sont déjà gardés par v-if="masterkillEvent"
-    // mais la logique DANS cette fonction doit être prudente.
-
     const gameInfoFromServer = masterkillEvent.value.current_game_info;
 
     if (gameInfoFromServer && (gameInfoFromServer.id || gameInfoFromServer.status === 'pending')) {
       activeGame.value = gameInfoFromServer;
-    } else if (masterkillEvent.value.status === 'pending') { // masterkillEvent.value existe ici
+    } else if (masterkillEvent.value.status === 'pending') {
       activeGame.value = { game_number: 1, status: 'pending', id: null, masterkill_event: mkId.value };
-    } else if (masterkillEvent.value.status === 'inprogress' && !gameInfoFromServer) { // masterkillEvent.value existe ici
-      const completedGamesCount = masterkillEvent.value.games?.filter(g => g.status === 'completed').length || 0;
-      if (completedGamesCount < masterkillEvent.value.num_games_planned) {
-        activeGame.value = { game_number: completedGamesCount + 1, status: 'pending', id: null, masterkill_event: mkId.value };
-      } else { 
-        activeGame.value = null; 
-      }
-    } else {
-      activeGame.value = null;
-    }
+    } else if (masterkillEvent.value.status === 'inprogress' && !gameInfoFromServer) {
+      const completedGames = masterkillEvent.value.games?.filter(g => g.status === 'completed').length || 0;
+      if (completedGames < masterkillEvent.value.num_games_planned) {
+        activeGame.value = { game_number: completedGames + 1, status: 'pending', id: null, masterkill_event: mkId.value };
+      } else { activeGame.value = null; }
+    } else { activeGame.value = null; }
 
-    if (masterkillEvent.value.status !== 'pending') { // masterkillEvent.value existe ici
-      await fetchAggregatedStats(); // fetchAggregatedStats vérifie déjà si masterkillEvent.value existe
-    } else {
-      mkAggregatedStats.value = [];
-    }
+    if (masterkillEvent.value.status !== 'pending') {
+      await fetchAggregatedStats();
+    } else { mkAggregatedStats.value = []; }
 
-    if (resetStatsIfNeeded) {
-      // Cette logique semble correcte, mais elle dépend de activeGame.value qui vient d'être défini.
-      const gameChanged = !activeGame.value || activeGame.value.id !== initialActiveGameId || (activeGame.value.id === initialActiveGameId && activeGame.value.status === 'pending' && initialActiveGameStatus !== 'pending');
-      const isNewGameScenario = gameChanged && (activeGame.value?.status !== 'inprogress' || !initialActiveGameId || activeGame.value.id !== initialActiveGameId);
-      if (isNewGameScenario) { 
-        initializeCurrentGameStats(); // initializeCurrentGameStats utilise masterkillEvent.value
-      }
-    }
+     if (resetStatsIfNeeded) {
+       const gameChanged = !activeGame.value || activeGame.value.id !== initialActiveGameId || (activeGame.value.id === initialActiveGameId && activeGame.value.status === 'pending' && initialActiveGameStatus !== 'pending');
+       const isNewGameScenario = gameChanged && (activeGame.value?.status !== 'inprogress' || !initialActiveGameId || activeGame.value.id !== initialActiveGameId);
+       if (isNewGameScenario) { initializeCurrentGameStats(); }
+     }
+
+     if (masterkillEvent.value && masterkillEvent.value.status === 'completed') {
+        await fetchGameByGameScoresForDetailChart();
+     }
+
   } catch (err) {
     console.error(`Erreur détaillée lors du chargement de MK ${mkId.value}:`, err.response || err.message || err);
-    error.value = `Impossible de charger les détails du MK ${mkId.value}. Vérifiez la console pour plus d'informations.`;
-    masterkillEvent.value = null; // Très important pour que le template ne plante pas
-  } finally {
-    isLoading.value = false;
-  }
+    error.value = `Impossible de charger les détails du MK ${mkId.value}. Vérifiez la console.`;
+    masterkillEvent.value = null; 
+  } finally { isLoading.value = false; }
 }
 
 function initializeCurrentGameStats() {
@@ -284,28 +268,31 @@ async function handleEndGame() {
 
 async function fetchGameByGameScoresForDetailChart() {
   if (!masterkillEvent.value || masterkillEvent.value.status !== 'completed') {
-    allLinesDrawnForDetail.value = true; return;
+    chartLabelsDetail.value = []; chartDatasetsDetail.value = []; return;
   }
-  isLoadingGraphDataDetail.value = true; allLinesDrawnForDetail.value = false;
+  isLoadingGraphDataDetail.value = true;
   try {
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/game-scores/`);
     gameByGameScoresDataDetail.value = response.data;
     if (gameByGameScoresDataDetail.value?.player_scores_per_game) {
         prepareChartDataForDetail();
-    } else { chartLabelsDetail.value = []; chartDatasetsDetail.value = []; allLinesDrawnForDetail.value = true; }
-  } catch (err) { console.error("Erreur fetch scores par partie pour détail:", err); allLinesDrawnForDetail.value = true; }
+    } else { chartLabelsDetail.value = []; chartDatasetsDetail.value = []; }
+  } catch (err) { console.error("Erreur fetch scores par partie pour détail:", err); }
   finally { isLoadingGraphDataDetail.value = false; }
 }
 
 function prepareChartDataForDetail() {
   if (!gameByGameScoresDataDetail.value || !masterkillEvent.value?.participants_details) {
-    chartLabelsDetail.value = []; chartDatasetsDetail.value = []; allLinesDrawnForDetail.value = true; return;
+    chartLabelsDetail.value = []; chartDatasetsDetail.value = []; return;
   }
   const numGames = gameByGameScoresDataDetail.value.num_games_played ?? masterkillEvent.value.num_games_planned ?? 0;
   const participants = gameByGameScoresDataDetail.value.participants || masterkillEvent.value.participants_details;
   const scoresPerGame = gameByGameScoresDataDetail.value.player_scores_per_game;
 
-  if (!participants || participants.length === 0 || numGames === 0) {
+  if (!participants || participants.length === 0) { return; }
+  
+  // Si numGames est 0, mais qu'on a des stats agrégées (MK terminé sans partie jouée, ou avec des scores manuels)
+  if (numGames === 0 && mkAggregatedStats.value.length > 0) {
     chartLabelsDetail.value = ["Début", "Score Final"];
     chartDatasetsDetail.value = participants.map(player => {
         const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
@@ -318,23 +305,25 @@ function prepareChartDataForDetail() {
             pointHoverRadius: 7, pointHoverBorderWidth: 2, borderWidth: 3,
         };
     });
-    allLinesDrawnForDetail.value = true; return;
+    return;
   }
-
+  
+  // Cas normal avec des parties jouées
   chartLabelsDetail.value = ["Début", ...Array.from({ length: numGames }, (_, i) => `Partie ${i + 1}`), "Score Final"];
   
   chartDatasetsDetail.value = participants.map(player => {
     const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
     const playerData = [0];
-    let cumulativeScore = 0;
+    let cumulativeScore = 0; // Cette variable n'est plus utilisée ici car les scores sont déjà cumulatifs par l'API
     const playerScoresForGames = scoresPerGame[player.id.toString()] || [];
     
     for (let i = 0; i < numGames; i++) {
-        cumulativeScore = playerScoresForGames[i] !== undefined ? playerScoresForGames[i] : cumulativeScore;
-        playerData.push(cumulativeScore);
+        // Utiliser le score cumulatif de la partie i, ou le score précédent si la partie i n'a pas de score pour ce joueur
+        const scoreForThisGame = playerScoresForGames[i] !== undefined ? playerScoresForGames[i] : (playerData.length > 0 ? playerData[playerData.length -1] : 0) ;
+        playerData.push(scoreForThisGame);
     }
     const aggPlayerStat = mkAggregatedStats.value.find(s => s.player.id === player.id);
-    const finalScoreFromAgg = aggPlayerStat ? (aggPlayerStat.total_score_from_games || 0) : cumulativeScore;
+    const finalScoreFromAgg = aggPlayerStat ? (aggPlayerStat.total_score_from_games || 0) : (playerData.length > 0 ? playerData[playerData.length -1] : 0);
     playerData.push(finalScoreFromAgg);
 
     return {
@@ -344,7 +333,6 @@ function prepareChartDataForDetail() {
       pointHoverRadius: 7, pointHoverBorderWidth: 2, borderWidth: 3,
     };
   });
-  allLinesDrawnForDetail.value = true;
 }
 
 onMounted(() => {
@@ -443,7 +431,7 @@ const detailedPlayerStats = computed(() => {
     const deaths = pStat.total_deaths || 0;
     const gamesPlayed = pStat.games_played_in_mk || completedGamesCountInMK.value || 0;
     const gulagWins = pStat.total_gulag_wins || 0;
-    const gulagLost = pStat.total_gulag_lost || 0;
+    const gulagLost = pStat.total_gulag_lost || 0; // Ce champ doit être fourni par l'API aggregated-stats
 
     return {
       id: pStat.player.id,
@@ -451,16 +439,17 @@ const detailedPlayerStats = computed(() => {
       total_kills: kills,
       total_deaths: deaths,
       kd_ratio: calculateKDRatio(kills, deaths),
-      total_assists: pStat.total_assists || 0,
+      total_assists: pStat.total_assists || 0, // Reste pour info, ne compte plus au score
       total_revives_done: pStat.total_revives_done || 0,
       average_kills_per_game: gamesPlayed > 0 ? (kills / gamesPlayed).toFixed(1) : '0.0',
       total_gulag_wins: gulagWins,
-      total_gulag_lost: gulagLost,
+      total_gulag_lost: gulagLost, 
       gulag_win_ratio: (gulagWins + gulagLost > 0) ? ((gulagWins / (gulagWins + gulagLost)) * 100).toFixed(1) + '%' : 'N/A',
       total_score_from_games: pStat.total_score_from_games || 0
     };
   }).sort((a,b) => b.total_score_from_games - a.total_score_from_games);
 });
+
 </script>
 
 <template>
@@ -502,6 +491,8 @@ const detailedPlayerStats = computed(() => {
           <p v-if="masterkillEvent.status === 'completed'"><strong>Durée du MK:</strong> {{ durationOfMK }}</p>
           <p><strong>Parties Prévues:</strong> {{ masterkillEvent.num_games_planned }}</p>
           <p><strong>Gage:</strong> {{ masterkillEvent.selected_gage_text || 'Aucun' }}</p>
+          <p v-if="masterkillEvent.has_bonus_reel !== undefined"><strong>Roue des Bonus :</strong> {{ masterkillEvent.has_bonus_reel ? 'Activée' : 'Désactivée' }}</p>
+          <p v-if="masterkillEvent.has_kill_multipliers !== undefined"><strong>Multiplicateurs Kills :</strong> {{ masterkillEvent.has_kill_multipliers ? 'Activés' : 'Désactivés' }}</p>
           <p v-if="masterkillEvent.status === 'completed' && completedGamesCountInMK > 0">
             <strong>Moy. Kills/Partie (Global):</strong> {{ averageKillsPerGameOverall }}
           </p>
@@ -555,10 +546,14 @@ const detailedPlayerStats = computed(() => {
             <span v-else-if="masterkillEvent.status === 'paused'"> (MK EN PAUSE)</span>
             <span v-if="activeGame?.status === 'inprogress'"> (EN COURS)</span>
           </h2>
+          
+          <div v-if="masterkillEvent.has_kill_multipliers && activeGame && activeGame.kill_multiplier && activeGame.kill_multiplier > 1.0" class="multiplier-active-banner">
+            🔥 Multiplicateur de Kills x{{ activeGame.kill_multiplier }} ACTIF pour cette partie ! 🔥
+          </div>
 
           <div v-if="isGameCurrentlyInProgress">
             <table class="stats-table">
-              <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist.</th><th>Réa. Done</th><th>Goulag</th><th>Redéployé</th><th>Rage Quit?</th></tr></thead>
+              <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. Done</th><th>Goulag</th><th>Redéployé</th><th>Rage Quit?</th></tr></thead>
               <tbody>
                 <tr v-for="player in masterkillEvent.participants_details" :key="player.id">
                   <td>{{ player.gamertag }}</td>
@@ -619,7 +614,7 @@ const detailedPlayerStats = computed(() => {
                                     <th>Kills</th>
                                     <th>Morts</th>
                                     <th>K/D</th>
-                                    <th>Assists</th>
+                                    <th>Assists (Info)</th>
                                     <th>Réanimations</th>
                                     <th>Moy.&nbsp;Kills/P.</th>
                                     <th>Goulags&nbsp;G.</th>
@@ -647,7 +642,7 @@ const detailedPlayerStats = computed(() => {
                     </div>
                     
                     <div class="map-section-container">
-                        <h3>Carte des Spawns (Exemple)</h3>
+                        <h3>Carte des Spawns</h3>
                          <div class="location-selector-mk-detail">
                             <label for="location-select-detail">Lieu d'intérêt :</label>
                             <select id="location-select-detail" v-model="selectedMapLocation">
@@ -659,16 +654,22 @@ const detailedPlayerStats = computed(() => {
                         </div>
                         <div class="map-container-mk-detail">
                             <img :src="mapWarzoneImage" alt="Carte Warzone" class="map-background-image-detail">
-                            <div
+                             <div
                               v-if="selectedMapLocation && mapLocations[selectedMapLocation]"
-                              class="map-point-detail"
+                              class="map-point-detail selected-spawn-point"
                               :style="{ 
                                 left: mapLocations[selectedMapLocation].x + '%', 
                                 top: mapLocations[selectedMapLocation].y + '%' 
                               }"
                               :title="mapLocations[selectedMapLocation].name"
-                            >📍</div>
-                            </div>
+                            >★</div>
+                            <div v-for="(game) in masterkillEvent.games.filter(g => g.status === 'completed' && g.spawn_location && mapLocations[g.spawn_location])" 
+                                :key="`spawn-point-${game.id}`"
+                                class="map-point-detail game-spawn-point"
+                                :style="{ left: mapLocations[game.spawn_location].x + '%', top: mapLocations[game.spawn_location].y + '%' }"
+                                :title="`${mapLocations[game.spawn_location].name} (Partie ${game.game_number})`"
+                            >{{ game.game_number }}</div>
+                        </div>
                     </div>
                 </div>
 

@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+import random
 
 class Player(models.Model):
     gamertag = models.CharField(max_length=100, unique=True, verbose_name="Pseudo du joueur")
@@ -44,6 +45,9 @@ class MasterkillEvent(models.Model):
     top1_solo_ends_mk = models.BooleanField(default=False, help_text="Un Top 1 solo met fin au MK ?", verbose_name="Top 1 Solo termine le MK")
     selected_gage = models.ForeignKey(Gage, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Gage sélectionné")
     
+    has_bonus_reel = models.BooleanField(default=True, verbose_name="Roue des Bonus activée")
+    has_kill_multipliers = models.BooleanField(default=False, verbose_name="Multiplicateurs de Kills activés")
+
     STATUS_CHOICES = [
         ('pending', 'En attente'),
         ('inprogress', 'En cours'),
@@ -77,6 +81,7 @@ class Game(models.Model):
     end_time = models.DateTimeField(null=True, blank=True, verbose_name="Fin de la partie")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    kill_multiplier = models.FloatField(default=1.0, verbose_name="Multiplicateur de Kills")
 
     class Meta:
         verbose_name = "Partie"
@@ -88,15 +93,23 @@ class Game(models.Model):
         mk_name = self.masterkill_event.name if self.masterkill_event else 'MK Inconnu'
         return f"MK \"{mk_name}\" - Partie {self.game_number} ({self.get_status_display()})"
 
+    def determine_and_set_kill_multiplier(self):
+        if self.masterkill_event.has_kill_multipliers:
+            if random.random() < 0.10: # 10% de chance
+                self.kill_multiplier = random.choice([1.0, 1.5, 2.0, 2.5])
+            else:
+                self.kill_multiplier = 1.0
+        else:
+            self.kill_multiplier = 1.0
+        # La sauvegarde (self.save()) devra être appelée après l'appel à cette méthode dans la vue.
+
 class GamePlayerStats(models.Model):
     game = models.ForeignKey(Game, related_name='player_stats', on_delete=models.CASCADE, verbose_name="Partie")
     player = models.ForeignKey(Player, related_name='game_stats', on_delete=models.CASCADE, verbose_name="Joueur")
-
     kills = models.PositiveIntegerField(default=0, verbose_name="Kills")
     deaths = models.PositiveIntegerField(default=0, verbose_name="Morts")
-    assists = models.PositiveIntegerField(default=0, verbose_name="Assistances") 
+    assists = models.PositiveIntegerField(default=0, verbose_name="Assistances")
     revives_done = models.PositiveIntegerField(default=0, verbose_name="Réanimations effectuées")
-
     GULAG_CHOICES = [
         ('not_played', 'Fermeture'),
         ('won', 'Gagné'),
@@ -108,13 +121,10 @@ class GamePlayerStats(models.Model):
         default='not_played', 
         verbose_name="Résultat Goulag"
     )
-    # Le champ gulag_won (BooleanField) a été correctement retiré précédemment.
-
     times_executed_enemy = models.PositiveIntegerField(default=0, verbose_name="Exécutions sur ennemi")
     times_got_executed = models.PositiveIntegerField(default=0, verbose_name="Exécutions subies")
     rage_quit = models.BooleanField(default=False, verbose_name="A quitté en cours (Rage Quit)")
     times_redeployed_by_teammate = models.PositiveIntegerField(default=0, verbose_name="Redéployé par coéquipier")
-
     score_in_game = models.IntegerField(default=0, verbose_name="Score pour cette partie")
 
     class Meta:
@@ -129,6 +139,7 @@ class GamePlayerStats(models.Model):
             mk_name = self.game.masterkill_event.name if self.game.masterkill_event else 'MK Inconnu'
             game_info = f"Partie {self.game.game_number} (MK \"{mk_name}\")"
         return f"{player_gamertag} dans {game_info}"
+
 class RedeployEvent(models.Model):
     game = models.ForeignKey(Game, related_name='redeploy_events', on_delete=models.CASCADE, verbose_name="Partie Concernée")
     redeployer_player = models.ForeignKey(Player, related_name='initiated_redeploys', on_delete=models.CASCADE, verbose_name="Joueur qui redéploie")

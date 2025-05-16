@@ -60,7 +60,7 @@ const mkId = ref(route.params.id);
 
 const masterkillEvent = ref(null);
 const aggregatedStats = ref([]);
-const finalScores = ref({});
+const finalScores = ref({}); // Stockera les scores finaux APRÈS bonus
 const isLoadingMKDetails = ref(true);
 const isLoadingAggregatedStats = ref(true);
 const error = ref(null);
@@ -68,7 +68,7 @@ const BONUS_POINTS_AWARD = 10;
 
 const reel1Items = ref([
   { id: 'kills', text: 'Kills', icon: killImage, statField: 'total_kills', modifierPref: 'max' },
-  { id: 'assists', text: 'Assistances', icon: '🤝', statField: 'total_assists', modifierPref: 'max' },
+  // { id: 'assists', text: 'Assistances', icon: '🤝', statField: 'total_assists', modifierPref: 'max' }, // Assistances retirées
   { id: 'revives', text: 'Réanimations', icon: reaImage, statField: 'total_revives_done', modifierPref: 'max' },
   { id: 'gulags', text: 'Goulags Gagnés', icon: goulagImage, statField: 'total_gulag_wins', modifierPref: 'max' },
   { id: 'deaths', text: 'Moins de Morts', icon: '⚰️', statField: 'total_deaths', modifierPref: 'min' },
@@ -127,7 +127,7 @@ function stopReelEffect(intervalIndex, finalValue, reelDisplayRef, displayExtrac
 }
 
 async function awardSingleBonus() {
-  if (bonusAwarded.value || !aggregatedStats.value || aggregatedStats.value.length === 0) {
+  if (!masterkillEvent.value || !masterkillEvent.value.has_bonus_reel || bonusAwarded.value || !aggregatedStats.value || aggregatedStats.value.length === 0) {
     allBonusesProcessedActions(); return;
   }
   startAllReelSpinEffects();
@@ -205,19 +205,23 @@ async function fetchDataAndInitBonuses() {
         finalScores.value[pStat.player.id.toString()] = pStat.total_score_from_games || 0;
       });
     }
-    if (masterkillEvent.value?.status === 'completed' && !bonusAwarded.value) { awardSingleBonus(); }
-    else if (masterkillEvent.value?.status === 'completed' && bonusAwarded.value) { allBonusesProcessedActions(); }
-    else { allLinesDrawn.value = true; } // Si pas complété, marquer comme dessiné pour ne pas bloquer
-  } catch (err) {
-    error.value = "Impossible de charger les données.";
+    
+    if (masterkillEvent.value?.status === 'completed' && masterkillEvent.value.has_bonus_reel && !bonusAwarded.value) { 
+      awardSingleBonus(); 
+    } else if (masterkillEvent.value?.status === 'completed') { 
+      allBonusesProcessedActions(); 
+    } else { 
+      allLinesDrawn.value = true; 
+    }
+  } catch (err) { 
+    error.value = "Impossible de charger les données."; 
     isLoadingMKDetails.value = false; isLoadingAggregatedStats.value = false;
-    allLinesDrawn.value = true; // En cas d'erreur, marquer aussi comme dessiné
+    allLinesDrawn.value = true;
   }
 }
 
 async function fetchGameByGameScoresForChart() {
   if (!masterkillEvent.value) { allLinesDrawn.value = true; return; }
-  // Modifié: Le graphique est toujours pertinent si le MK est complété, même si bonusAwarded est true (consultation ultérieure)
   if (masterkillEvent.value.status !== 'completed') {
     allLinesDrawn.value = true;
     return;
@@ -227,7 +231,7 @@ async function fetchGameByGameScoresForChart() {
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/game-scores/`);
     gameByGameScoresData.value = response.data;
     if (gameByGameScoresData.value?.player_scores_per_game) {
-        prepareChartDataForAnimation(); // Cette fonction anime
+        prepareChartDataForAnimation();
     } else { chartLabels.value = []; chartDatasets.value = []; allLinesDrawn.value = true; }
   } catch (err) { console.error("Erreur fetch scores par partie:", err); allLinesDrawn.value = true; }
   finally { isLoadingGraphData.value = false; }
@@ -237,7 +241,7 @@ function prepareChartDataForAnimation() {
   if (!gameByGameScoresData.value || !masterkillEvent.value?.participants_details) {
     chartLabels.value = []; chartDatasets.value = []; allLinesDrawn.value = true; return;
   }
-  const numGamesForChart = gameByGameScoresData.value.num_games_planned || masterkillEvent.value.num_games_planned;
+  const numGamesForChart = gameByGameScoresData.value.num_games_played || masterkillEvent.value.num_games_planned;
   const participantDetailsForChart = gameByGameScoresData.value.participants || masterkillEvent.value.participants_details;
   const scoresPerGameFromAPI = gameByGameScoresData.value.player_scores_per_game;
 
@@ -293,7 +297,6 @@ function addFinalBonusPointToChart() {
   chartDatasets.value = chartDatasets.value.map(dataset => {
     const originalPlayer = (gameByGameScoresData.value?.participants || masterkillEvent.value?.participants_details || []).find(p => p.gamertag === dataset.label);
     let finalScoreWithBonus = dataset.data.length > 0 ? dataset.data[dataset.data.length - 1] : 0;
-    // Utiliser finalScores qui inclut les points bonus pour le dernier point du graphique
     if (originalPlayer && finalScores.value[originalPlayer.id.toString()] !== undefined) {
       finalScoreWithBonus = finalScores.value[originalPlayer.id.toString()];
     }
@@ -317,16 +320,18 @@ function addFinalBonusPointToChart() {
 }
 
 const rankedPlayers = computed(() => {
-  if (!aggregatedStats.value || aggregatedStats.value.length === 0) return [];
-  // Utiliser finalScores pour le classement qui inclut les bonus
+  if (!aggregatedStats.value || aggregatedStats.value.length === 0 || Object.keys(finalScores.value).length === 0) return [];
   return Object.entries(finalScores.value).map(([playerId, score]) => {
-    const playerInfo = aggregatedStats.value.find(p => p.player.id.toString() === playerId)?.player;
-    const initialScore = aggregatedStats.value.find(p => p.player.id.toString() === playerId)?.total_score_from_games || 0;
+    const playerAggStats = aggregatedStats.value.find(p => p.player.id.toString() === playerId);
+    const playerInfo = playerAggStats?.player;
+    const initialScore = playerAggStats?.total_score_from_games || 0;
     return {
       playerId: playerId,
       gamertag: playerInfo?.gamertag || 'N/A',
-      totalScore: score,
+      gameScore: initialScore,
+      totalScore: score, // totalScore vient de finalScores et inclut le bonus
       bonusAwarded: score - initialScore,
+      finalScore: score, // alias pour cohérence, c'est le score total
     };
   }).sort((a, b) => b.totalScore - a.totalScore)
     .map((p, index) => ({ ...p, rank: index + 1 }));
