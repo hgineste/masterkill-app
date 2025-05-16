@@ -668,37 +668,43 @@ const detailedPlayerStats = computed(() => {
               </select>
             </div>
             <table class="stats-table">
-              <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. Done (Compteur)</th><th>Goulag</th><th>Redéployé</th><th>Rage Quit?</th></tr></thead>
+              <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. (Compteur)</th><th>Goulag</th><th>Redéployé (Compteur)</th><th>Rage Quit?</th></tr></thead>
               <tbody>
                 <tr v-for="player in masterkillEvent.participants_details" :key="player.id">
                   <td>{{ player.gamertag }}</td>
                   <td class="stat-cell"><button @click="changeStat(player.id, 'kills', -1)" class="stat-btn">-</button><span>{{ currentGameStats[player.id]?.kills || 0 }}</span><button @click="changeStat(player.id, 'kills', 1)" class="stat-btn">+</button></td>
                   <td class="stat-cell"><button @click="changeStat(player.id, 'deaths', -1)" class="stat-btn">-</button><span>{{ currentGameStats[player.id]?.deaths || 0 }}</span><button @click="changeStat(player.id, 'deaths', 1)" class="stat-btn">+</button></td>
                   <td class="stat-cell"><button @click="changeStat(player.id, 'assists', -1)" class="stat-btn">-</button><span>{{ currentGameStats[player.id]?.assists || 0 }}</span><button @click="changeStat(player.id, 'assists', 1)" class="stat-btn">+</button></td>
-                  <td class="stat-cell"><button @click="changeStat(player.id, 'revives_done', -1)" class="stat-btn">-</button><span>{{ currentGameStats[player.id]?.revives_done || 0 }}</span><button @click="changeStat(player.id, 'revives_done', 1)" class="stat-btn">+</button></td>
+                  <td class="stat-cell"><span>{{ currentGameStats[player.id]?.revives_done || 0 }}</span></td>
                   <td><select :value="currentGameStats[player.id]?.gulag_status || 'not_played'" @change="updateGulagStatus(player.id, $event.target.value)" class="stat-select"><option v-for="opt in gulagOptions" :key="opt.value" :value="opt.value">{{ opt.text }}</option></select></td>
                   <td>{{ currentGameStats[player.id]?.times_redeployed_by_teammate || 0 }}</td>
                   <td><input type="checkbox" :checked="currentGameStats[player.id]?.rage_quit || false" @change="toggleRageQuit(player.id)" class="stat-checkbox"/></td>
                 </tr>
               </tbody>
             </table>
-            <div class="action-subsection">
-                <button @click="showRedeployLogForm = !showRedeployLogForm" class="action-btn log-redeploy-btn">{{ showRedeployLogForm ? 'Fermer Log Redéploiement' : 'Logger un Redéploiement' }}</button>
-                <form v-if="showRedeployLogForm" @submit.prevent="logRedeployEvent" class="log-event-form">
-                    <h4>Qui a redéployé qui ?</h4>
-                    <div class="form-group"><label for="redeployer">Redéployeur:</label><select id="redeployer" v-model="redeployData.redeployer_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdplr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
-                    <div class="form-group"><label for="redeployed">Redéployé:</label><select id="redeployed" v-model="redeployData.redeployed_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdpld-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
-                    <button type="submit" class="action-btn submit-log-btn">Valider</button><p v-if="redeployError" class="error-message form-error">{{ redeployError }}</p>
-                </form>
-            </div>
-            <div class="action-subsection">
-                <button @click="showReviveLogForm = !showReviveLogForm" class="action-btn log-revive-btn">{{ showReviveLogForm ? 'Fermer Log Réanimation' : 'Logger une Réanimation' }}</button>
-                <form v-if="showReviveLogForm" @submit.prevent="logReviveEvent" class="log-event-form">
-                    <h4>Qui a réanimé qui ?</h4>
-                    <div class="form-group"><label for="reviver">Réanimateur:</label><select id="reviver" v-model="reviveData.reviver_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
-                    <div class="form-group"><label for="revived">Réanimé:</label><select id="revived" v-model="reviveData.revived_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvd-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
-                    <button type="submit" class="action-btn submit-log-btn">Valider Réanimation</button><p v-if="reviveError" class="error-message form-error">{{ reviveError }}</p>
-                </form>
+            <div class="action-subsection form-actions-horizontal">
+                <div class="action-form-container">
+                    <button @click="showRedeployLogForm = !showRedeployLogForm" class="action-btn log-redeploy-btn">
+                        {{ showRedeployLogForm ? 'Fermer Log Redéploiement' : 'Logger un Redéploiement' }}
+                    </button>
+                    <form v-if="showRedeployLogForm" @submit.prevent="logRedeployEvent" class="log-event-form">
+                        <h4>Qui a redéployé qui ?</h4>
+                        <div class="form-group"><label for="redeployer">Redéployeur:</label><select id="redeployer" v-model="redeployData.redeployer_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdplr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                        <div class="form-group"><label for="redeployed">Redéployé:</label><select id="redeployed" v-model="redeployData.redeployed_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdpld-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                        <button type="submit" class="action-btn submit-log-btn">Valider Redéploiement</button><p v-if="redeployError" class="error-message form-error">{{ redeployError }}</p>
+                    </form>
+                </div>
+                <div class="action-form-container">
+                    <button @click="showReviveLogForm = !showReviveLogForm" class="action-btn log-revive-btn">
+                      {{ showReviveLogForm ? 'Fermer Log Réanimation' : 'Logger une Réanimation' }}
+                    </button>
+                    <form v-if="showReviveLogForm" @submit.prevent="logReviveEvent" class="log-event-form">
+                        <h4>Qui a réanimé qui ?</h4>
+                        <div class="form-group"><label for="reviver">Réanimateur:</label><select id="reviver" v-model="reviveData.reviver_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                        <div class="form-group"><label for="revived">Réanimé:</label><select id="revived" v-model="reviveData.revived_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvd-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                        <button type="submit" class="action-btn submit-log-btn">Valider Réanimation</button><p v-if="reviveError" class="error-message form-error">{{ reviveError }}</p>
+                    </form>
+                </div>
             </div>
             <div class="game-actions">
               <button @click="handleEndGame" v-if="canEndCurrentGame" class="action-btn end-game-btn">Terminer Partie {{ activeGame?.game_number }}</button>
@@ -910,16 +916,20 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .stat-btn:hover { opacity: 0.8; background-color: var(--wz-accent-yellow); color: var(--wz-text-dark); }
 .stat-checkbox, .stat-select { accent-color: var(--wz-accent-yellow); transform: scale(1.2); cursor: pointer; vertical-align: middle; }
 .stat-select { background-color: var(--wz-bg-dark); color: var(--wz-text-light); border: 1px solid var(--wz-border-color); padding: 4px 6px; border-radius: 4px; font-size: 0.9em; transform: scale(1.1); }
-.action-subsection { margin-top: 25px; padding-top: 20px; border-top: 1px dashed var(--wz-border-color); display: flex; flex-direction: column; gap: 15px; }
-.log-redeploy-btn, .log-revive-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 0; width: fit-content; align-self: flex-start;}
-.submit-log-btn, .action-btn { padding: 10px 18px; font-size: 0.95em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; border-radius: 4px; cursor: pointer; transition: all 0.2s ease; border: 1px solid transparent; color: white; }
+
+.action-subsection { margin-top: 25px; padding-top: 20px; border-top: 1px dashed var(--wz-border-color); display: flex; flex-direction: column; gap: 20px; }
+.action-form-container { margin-bottom: 10px; }
+.log-redeploy-btn, .log-revive-btn { background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); margin-bottom: 10px; width: fit-content; }
+.log-revive-btn { background-color: #fd7e14; } /* Orange pour différencier */
 .log-event-form { background-color: var(--wz-bg-light); padding: 20px; border-radius: 5px; border: 1px solid var(--wz-border-color); margin-top: 10px; }
 .log-event-form h4 { margin-top: 0; margin-bottom: 15px; color: var(--wz-text-light); font-size: 1.1em; border-bottom: none; }
 .log-event-form .form-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-.log-event-form .form-group label { width: auto; min-width: 100px; text-align: right;} /* Ajusté */
+.log-event-form .form-group label { width: auto; min-width: 100px; text-align: right;}
 .log-event-form select { flex-grow: 1; padding: 8px 10px; background-color: var(--wz-bg-dark); color: var(--wz-text-light); border: 1px solid #454545; border-radius: 4px; }
-.submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 0; margin-top:10px; } /* margin-left retiré */
+.submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: auto; margin-top:10px; display: block;}
+
 .game-actions, .mk-global-actions { margin-top: 20px; text-align: center; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
+.action-btn { padding: 10px 18px; font-size: 0.95em; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; border-radius: 4px; cursor: pointer; transition: all 0.2s ease; border: 1px solid transparent; color: white; }
 .info-message, .completion-message { text-align: center; font-style: italic; padding: 15px 20px; background-color: rgba(0,0,0,0.2); border: 1px solid var(--wz-border-color); border-radius: 4px; margin-top: 20px; color: var(--wz-text-medium); font-size: 1.1em;}
 .back-to-list-btn { display: inline-block; margin-top: 30px; padding: 10px 20px; background-color: var(--wz-accent-cyan); color: var(--wz-text-dark); text-decoration: none; border-radius: 4px; font-weight: bold; transition: background-color 0.3s ease; }
 .back-to-list-btn:hover { background-color: #29deef; }
@@ -943,7 +953,7 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .map-background-image-detail { display: block; width: 100%; height: 100%; object-fit: cover; }
 .map-point-detail { position: absolute; width: 10px; height: 10px; background-color: var(--wz-accent-red); border: 1px solid white; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 6px black; font-size: 0.7em; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; z-index: 10; }
 .game-spawn-point { background-color: var(--wz-accent-cyan); opacity: 0.8; width:12px; height:12px; }
-.selected-spawn-point { background-color: gold; border-color: black; width: 14px; height: 14px; z-index: 11; font-size: 1em; }
+.selected-spawn-point { background-color: gold; border-color: black; width: 14px; height: 14px; z-index: 11; font-size:1em;}
 .chart-section-detail { margin-top: 25px; padding: 15px; background-color: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid var(--wz-border-color); }
 .chart-section-detail h3 { color: var(--wz-accent-yellow); text-align: center; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
 .chart-container-detail { height: 350px; position: relative; }
@@ -963,6 +973,40 @@ hr { border: 0; height: 1px; background: var(--wz-border-color); margin: 25px 0;
 .next-game-btn { background-color: var(--wz-accent-green); border-color: var(--wz-accent-green);}
 .end-mk-btn { background-color: #343a40; border-color: #343a40; }
 .end-mk-btn:hover { background-color: #23272b; }
+/* Ajustement pour que les boutons de log soient sur la même ligne si possible */
+.action-subsection.form-actions-horizontal {
+    display: flex;
+    flex-direction: row; /* Aligner les conteneurs de formulaire horizontalement */
+    gap: 20px; /* Espace entre les formulaires */
+    align-items: flex-start; /* Aligner en haut */
+    flex-wrap: wrap; /* Permettre le retour à la ligne si pas assez de place */
+}
+.action-form-container {
+    display: flex;
+    flex-direction: column; /* Les boutons et formulaires internes restent en colonne */
+    gap: 10px; /* Espace entre le bouton et son formulaire */
+    flex: 1; /* Permet aux conteneurs de formulaires de se partager l'espace */
+    min-width: 300px; /* Largeur minimale pour chaque bloc de formulaire */
+}
 
-.submit-log-btn { background-color: var(--wz-accent-green); color: white; font-size: 0.9em; padding: 8px 15px; margin-left: 0; margin-top:10px; } /* margin-left retiré */
+.log-redeploy-btn, .log-revive-btn { 
+    background-color: var(--wz-accent-cyan); 
+    color: var(--wz-text-dark); 
+    margin-bottom: 0; 
+    width: auto; /* S'adapte au contenu */
+    align-self: flex-start; /* Aligner le bouton à gauche de son conteneur */
+    padding: 8px 15px;
+}
+.log-revive-btn { 
+    background-color: #fd7e14; /* Orange pour différencier */
+}
+.submit-log-btn { 
+    background-color: var(--wz-accent-green); 
+    color: white; 
+    font-size: 0.9em; 
+    padding: 8px 15px; 
+    margin-left: 0; /* Retiré */
+    margin-top:10px; 
+    align-self: flex-start; /* Aligner le bouton à gauche de son conteneur */
+}
 </style>
