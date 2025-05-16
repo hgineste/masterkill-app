@@ -7,6 +7,7 @@ import killImage from '@/assets/images/kill-image.png';
 import reaImage from '@/assets/images/rea-image.png';
 import goulagImage from '@/assets/images/goulag-image.png';
 import deployImage from '@/assets/images/deploy-image.png';
+import mapWarzoneImage from '@/assets/images/map_warzone_placeholder.jpg'; // Assurez-vous d'avoir cette image
 
 import { Line } from 'vue-chartjs';
 import {
@@ -25,7 +26,6 @@ const labelOnLineEndPlugin = {
     if (!chartArea) return;
     ctx.save();
     const yPositionsOccupied = {};
-
     data.datasets.forEach((dataset, i) => {
       const meta = chart.getDatasetMeta(i);
       if (meta.data.length > 0) {
@@ -43,10 +43,8 @@ const labelOnLineEndPlugin = {
             attempt++;
         }
         yPositionsOccupied[yPos] = x;
-
         if (yPos < chartArea.top + fontSize / 2) yPos = chartArea.top + fontSize / 2;
         if (yPos > chartArea.bottom - fontSize / 2) yPos = chartArea.bottom - fontSize / 2;
-
         ctx.fillText(dataset.label, x, yPos);
       }
     });
@@ -60,7 +58,7 @@ const mkId = ref(route.params.id);
 
 const masterkillEvent = ref(null);
 const aggregatedStats = ref([]);
-const finalScores = ref({}); // Stockera les scores finaux APRÈS bonus
+const finalScores = ref({});
 const isLoadingMKDetails = ref(true);
 const isLoadingAggregatedStats = ref(true);
 const error = ref(null);
@@ -68,7 +66,6 @@ const BONUS_POINTS_AWARD = 10;
 
 const reel1Items = ref([
   { id: 'kills', text: 'Kills', icon: killImage, statField: 'total_kills', modifierPref: 'max' },
-  // { id: 'assists', text: 'Assistances', icon: '🤝', statField: 'total_assists', modifierPref: 'max' }, // Assistances retirées
   { id: 'revives', text: 'Réanimations', icon: reaImage, statField: 'total_revives_done', modifierPref: 'max' },
   { id: 'gulags', text: 'Goulags Gagnés', icon: goulagImage, statField: 'total_gulag_wins', modifierPref: 'max' },
   { id: 'deaths', text: 'Moins de Morts', icon: '⚰️', statField: 'total_deaths', modifierPref: 'min' },
@@ -94,6 +91,14 @@ const gameByGameScoresData = ref(null);
 const isLoadingGraphData = ref(false);
 const chartLabels = ref([]);
 const chartDatasets = ref([]);
+
+const mapLocations = ref({
+  'Airport': { name: 'Airport', x: 15, y: 25 },
+  'Stadium': { name: 'Stadium', x: 50, y: 30 },
+  'Downtown': { name: 'Downtown', x: 45, y: 60 },
+  'Superstore': { name: 'Superstore', x: 35, y: 50 },
+});
+const selectedMapLocation = ref(null);
 
 const chartData = computed(() => ({ labels: chartLabels.value, datasets: chartDatasets.value }));
 const chartOptions = ref({
@@ -151,7 +156,7 @@ async function awardSingleBonus() {
     stopReelEffect(1, finalReel2Value.value, reel2Display, item => ({ text: item.text }));
   }, reel2StopTime);
 
-  setTimeout(() => {
+  setTimeout(async () => {
     stopReelEffect(2, {text: '...'}, reel3Display, item => item);
     isSpinning.value = false;
     if (!finalReel1Value.value || !finalReel2Value.value) { finalReel3Value.value = { gamertag: "Erreur" }; allBonusesProcessedActions(); return; }
@@ -171,10 +176,21 @@ async function awardSingleBonus() {
     if (eligiblePlayers.length > 0 && (finalReel2Value.value.modifier === 'min' || targetValue > 0) ) {
       finalReel3Value.value = eligiblePlayers[Math.floor(Math.random() * eligiblePlayers.length)];
       reel3Display.value = { text: finalReel3Value.value.gamertag };
-      if (finalScores.value[finalReel3Value.value.id.toString()] !== undefined) {
-        finalScores.value[finalReel3Value.value.id.toString()] = (finalScores.value[finalReel3Value.value.id.toString()] || 0) + BONUS_POINTS_AWARD;
-      }
+      const currentScore = finalScores.value[finalReel3Value.value.id.toString()] || 0;
+      finalScores.value[finalReel3Value.value.id.toString()] = currentScore + BONUS_POINTS_AWARD;
       bonusAwardLogEntry.value = { criterion: finalReel1Value.value, modifier: finalReel2Value.value, player: finalReel3Value.value, points: BONUS_POINTS_AWARD, valueAchieved: targetValue };
+      try {
+        await apiClient.post(`/masterkillevents/${mkId.value}/apply_bonus/`, {
+            player_id: finalReel3Value.value.id,
+            bonus_points: BONUS_POINTS_AWARD,
+            reason: `${finalReel1Value.value.text} (${finalReel2Value.value.description})`
+        });
+      } catch (apiError) {
+          console.error("Erreur enregistrement bonus serveur:", apiError);
+          finalScores.value[finalReel3Value.value.id.toString()] = currentScore;
+          bonusAwardLogEntry.value.points = 0;
+          bonusAwardLogEntry.value.player.gamertag += " (Erreur Bonus)";
+      }
     } else {
       finalReel3Value.value = { gamertag: "Personne !" }; reel3Display.value = { text: "Personne !" };
       bonusAwardLogEntry.value = { criterion: finalReel1Value.value, modifier: finalReel2Value.value, player: {gamertag: "Personne !"}, points: 0, valueAchieved: targetValue };
@@ -200,10 +216,13 @@ async function fetchDataAndInitBonuses() {
     masterkillEvent.value = mkResponse.data; isLoadingMKDetails.value = false;
     aggregatedStats.value = statsResponse.data; isLoadingAggregatedStats.value = false;
 
-    if (aggregatedStats.value) {
+    if (masterkillEvent.value && aggregatedStats.value) {
       aggregatedStats.value.forEach(pStat => {
         finalScores.value[pStat.player.id.toString()] = pStat.total_score_from_games || 0;
       });
+    } else {
+        error.value = "Données de base (MK ou Stats) manquantes pour initialiser les scores.";
+        allLinesDrawn.value = true; return;
     }
     
     if (masterkillEvent.value?.status === 'completed' && masterkillEvent.value.has_bonus_reel && !bonusAwarded.value) { 
@@ -212,9 +231,10 @@ async function fetchDataAndInitBonuses() {
       allBonusesProcessedActions(); 
     } else { 
       allLinesDrawn.value = true; 
+      error.value = "Cet événement Masterkill n'est pas encore terminé ou les bonus ne sont pas activés.";
     }
   } catch (err) { 
-    error.value = "Impossible de charger les données."; 
+    error.value = "Impossible de charger les données initiales du Masterkill."; 
     isLoadingMKDetails.value = false; isLoadingAggregatedStats.value = false;
     allLinesDrawn.value = true;
   }
@@ -320,7 +340,23 @@ function addFinalBonusPointToChart() {
 }
 
 const rankedPlayers = computed(() => {
-  if (!aggregatedStats.value || aggregatedStats.value.length === 0 || Object.keys(finalScores.value).length === 0) return [];
+  if (!aggregatedStats.value || aggregatedStats.value.length === 0 || Object.keys(finalScores.value).length === 0) {
+    // Si finalScores n'est pas prêt (ex: bonus non encore calculé), on affiche le classement basé sur aggregatedStats
+    if (aggregatedStats.value.length > 0) {
+        return [...aggregatedStats.value]
+            .map(pStat => ({
+                playerId: pStat.player.id,
+                gamertag: pStat.player.gamertag,
+                gameScore: pStat.total_score_from_games || 0,
+                bonusAwarded: 0, // Pas encore de bonus
+                totalScore: pStat.total_score_from_games || 0,
+                finalScore: pStat.total_score_from_games || 0,
+            }))
+            .sort((a, b) => b.totalScore - a.totalScore)
+            .map((p, index) => ({ ...p, rank: index + 1 }));
+    }
+    return [];
+  }
   return Object.entries(finalScores.value).map(([playerId, score]) => {
     const playerAggStats = aggregatedStats.value.find(p => p.player.id.toString() === playerId);
     const playerInfo = playerAggStats?.player;
@@ -329,12 +365,75 @@ const rankedPlayers = computed(() => {
       playerId: playerId,
       gamertag: playerInfo?.gamertag || 'N/A',
       gameScore: initialScore,
-      totalScore: score, // totalScore vient de finalScores et inclut le bonus
+      totalScore: score,
       bonusAwarded: score - initialScore,
-      finalScore: score, // alias pour cohérence, c'est le score total
+      finalScore: score,
     };
   }).sort((a, b) => b.totalScore - a.totalScore)
     .map((p, index) => ({ ...p, rank: index + 1 }));
+});
+
+const completedGamesCountInMKFromResults = computed(() => {
+    // Utiliser gameByGameScoresData si disponible, sinon masterkillEvent.games (pourrait être moins à jour)
+    if (gameByGameScoresData.value && gameByGameScoresData.value.num_games_played !== undefined) {
+        return gameByGameScoresData.value.num_games_played;
+    }
+    return masterkillEvent.value?.games?.filter(g => g.status === 'completed').length || 0;
+});
+
+
+function calculateKDRatio(kills, deaths) {
+  const k = Number(kills) || 0;
+  const d = Number(deaths) || 0;
+  if (d === 0) return k > 0 ? '∞' : (0).toFixed(2);
+  return (k / d).toFixed(2);
+}
+
+const durationOfMKResults = computed(() => {
+  if (masterkillEvent.value && masterkillEvent.value.effective_start_at && masterkillEvent.value.ended_at) {
+    const start = new Date(masterkillEvent.value.effective_start_at);
+    const end = new Date(masterkillEvent.value.ended_at);
+    const durationMs = end - start;
+    const hours = Math.floor(durationMs / (1000 * 60 * 60));
+    const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}min`;
+  }
+  return 'N/A';
+});
+
+const averageKillsPerGameOverallResults = computed(() => {
+    if (masterkillEvent.value && aggregatedStats.value.length > 0 && completedGamesCountInMKFromResults.value > 0) {
+        const totalKillsAllPlayers = aggregatedStats.value.reduce((sum, pStat) => sum + (pStat.total_kills || 0), 0);
+        return (totalKillsAllPlayers / completedGamesCountInMKFromResults.value).toFixed(1);
+    }
+    return 'N/A';
+});
+
+const detailedPlayerStatsResults = computed(() => {
+  if (!aggregatedStats.value || aggregatedStats.value.length === 0 || !masterkillEvent.value) return [];
+  return aggregatedStats.value.map(pStat => {
+    const kills = pStat.total_kills || 0;
+    const deaths = pStat.total_deaths || 0;
+    const gamesPlayed = pStat.games_played_in_mk ?? completedGamesCountInMKFromResults.value ?? 0;
+    const gulagWins = pStat.total_gulag_wins || 0;
+    const gulagLost = pStat.total_gulag_lost || 0; 
+    const scoreWithBonus = finalScores.value[pStat.player.id.toString()] ?? (pStat.total_score_from_games || 0);
+
+    return {
+      id: pStat.player.id,
+      gamertag: pStat.player.gamertag,
+      total_kills: kills,
+      total_deaths: deaths,
+      kd_ratio: calculateKDRatio(kills, deaths),
+      total_assists: pStat.total_assists || 0,
+      total_revives_done: pStat.total_revives_done || 0,
+      average_kills_per_game: gamesPlayed > 0 ? (kills / gamesPlayed).toFixed(1) : '0.0',
+      total_gulag_wins: gulagWins,
+      total_gulag_lost: gulagLost, 
+      gulag_win_ratio: (gulagWins + gulagLost > 0) ? ((gulagWins / (gulagWins + gulagLost)) * 100).toFixed(1) + '%' : 'N/A',
+      total_score_from_games: scoreWithBonus
+    };
+  }).sort((a,b) => b.total_score_from_games - a.total_score_from_games);
 });
 
 onMounted(() => {
