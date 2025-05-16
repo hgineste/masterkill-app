@@ -468,8 +468,8 @@ onMounted(() => {
     </header>
 
     <div class="content-wrapper-results">
-      <div v-if="isLoadingMKDetails || (isLoadingAggregatedStats && !bonusAwarded)" class="loading">
-        Analyse des performances...
+      <div v-if="isLoadingMKDetails || (isLoadingAggregatedStats && masterkillEvent && masterkillEvent.has_bonus_reel && !bonusAwarded)" class="loading">
+        Analyse des performances et calcul du bonus...
       </div>
       <div v-else-if="error" class="error-message">{{ error }}</div>
       <div v-else-if="masterkillEvent">
@@ -522,90 +522,17 @@ onMounted(() => {
           </div>
         </div>
         
-        <div v-if="bonusAwarded || !masterkillEvent.has_bonus_reel">
+        <div v-if="bonusAwarded || (masterkillEvent.status === 'completed' && !masterkillEvent.has_bonus_reel)">
           <hr v-if="bonusAwardLogEntry || !masterkillEvent.has_bonus_reel" />
 
-           <div class="completed-mk-visuals-results">
-                <div class="details-grid summary-info-results">
-                    <p><strong>Durée du MK:</strong> {{ durationOfMKResults }}</p>
-                    <p v-if="completedGamesCountInMKFromResults > 0"><strong>Moy. Kills/Partie (Global):</strong> {{ averageKillsPerGameOverallResults }}</p>
-                    <p><strong>Gage:</strong> {{ masterkillEvent.selected_gage_text || 'Aucun' }}</p>
-                </div>
-                <hr>
-                <div class="stats-and-map-grid-results">
-                    <div class="detailed-stats-section-results">
-                        <h3>Statistiques Détaillées Finales</h3>
-                        <h4>Rapport de Combat Complet</h4>
-                        <div class="table-responsive">
-                            <table class="stats-table detailed-summary-table">
-                                <thead>
-                                <tr>
-                                    <th>Opérateur</th>
-                                    <th>Score&nbsp;Final</th>
-                                    <th>Kills</th>
-                                    <th>Morts</th>
-                                    <th>K/D</th>
-                                    <th>Assists (Info)</th>
-                                    <th>Réanimations</th>
-                                    <th>Moy.&nbsp;Kills/P.</th>
-                                    <th>Goulags&nbsp;G.</th>
-                                    <th>Goulags&nbsp;P.</th>
-                                    <th>Ratio&nbsp;Goulag</th>
-                                </tr>
-                                </thead>
-                                <tbody>
-                                <tr v-for="playerStat in detailedPlayerStatsResults" :key="`detail-res-${playerStat.id}`">
-                                    <td>{{ playerStat.gamertag }}</td>
-                                    <td><strong>{{ playerStat.total_score_from_games }}</strong></td>
-                                    <td>{{ playerStat.total_kills }}</td>
-                                    <td>{{ playerStat.total_deaths }}</td>
-                                    <td>{{ playerStat.kd_ratio }}</td>
-                                    <td>{{ playerStat.total_assists }}</td>
-                                    <td>{{ playerStat.total_revives_done }}</td>
-                                    <td>{{ playerStat.average_kills_per_game }}</td>
-                                    <td>{{ playerStat.total_gulag_wins }}</td>
-                                    <td>{{ playerStat.total_gulag_lost }}</td>
-                                    <td>{{ playerStat.gulag_win_ratio }}</td>
-                                </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                    
-                    <div class="map-section-container-results">
-                        <h3>Carte des Spawns</h3>
-                         <div class="location-selector-mk-results">
-                            <label for="location-select-results">Lieu d'intérêt :</label>
-                            <select id="location-select-results" v-model="selectedMapLocation">
-                            <option :value="null">-- Aucun Lieu --</option>
-                            <option v-for="(details, name) in mapLocations" :key="name" :value="name">
-                                {{ details.name }}
-                            </option>
-                            </select>
-                        </div>
-                        <div class="map-container-mk-results">
-                            <img :src="mapWarzoneImage" alt="Carte Warzone" class="map-background-image-results">
-                             <div
-                              v-if="selectedMapLocation && mapLocations[selectedMapLocation]"
-                              class="map-point-results selected-spawn-point"
-                              :style="{ 
-                                left: mapLocations[selectedMapLocation].x + '%', 
-                                top: mapLocations[selectedMapLocation].y + '%' 
-                              }"
-                              :title="mapLocations[selectedMapLocation].name"
-                            >★</div>
-                            <div v-for="(game, index) in masterkillEvent.games.filter(g => g.status === 'completed' && g.spawn_location && mapLocations[g.spawn_location])" 
-                                :key="`spawn-point-res-${game.id || index}`"
-                                class="map-point-results game-spawn-point"
-                                :style="{ left: mapLocations[game.spawn_location].x + '%', top: mapLocations[game.spawn_location].y + '%' }"
-                                :title="`${mapLocations[game.spawn_location].name} (Partie ${game.game_number})`"
-                            >{{ game.game_number }}</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+          <div class="details-grid summary-info-results">
+              <p><strong>Durée du MK:</strong> {{ durationOfMKResults }}</p>
+              <p v-if="completedGamesCountInMKFromResults > 0"><strong>Moy. Kills/Partie (Global):</strong> {{ averageKillsPerGameOverallResults }}</p>
+              <p><strong>Gage:</strong> {{ masterkillEvent.selected_gage_text || 'Aucun' }}</p>
+          </div>
+          <hr>
 
-          <div class="mario-party-graph-section" v-if="gameByGameScoresData && (bonusAwarded || !masterkillEvent.has_bonus_reel)">
+          <div class="mario-party-graph-section" v-if="gameByGameScoresData">
             <h2>📈 Évolution des Scores 📈</h2>
             <div class="chart-container">
               <Line
@@ -615,12 +542,13 @@ onMounted(() => {
                 :key="`result-chart-${mkId}`"
                 ref="chartInstanceRef"
               />
-              <p v-else class="loading">Animation du graphique...</p>
+              <p v-else-if="masterkillEvent.status === 'completed'" class="loading">Animation du graphique...</p>
             </div>
           </div>
+          <hr v-if="gameByGameScoresData">
 
-          <h2 v-if="allLinesDrawn && (bonusAwarded || !masterkillEvent.has_bonus_reel)">🏆 Classement Final 🏆</h2>
-          <table v-if="allLinesDrawn && rankedPlayers.length && (bonusAwarded || !masterkillEvent.has_bonus_reel)" class="results-table">
+          <h2 v-if="allLinesDrawn">🏆 Classement Final 🏆</h2>
+          <table v-if="allLinesDrawn && rankedPlayers.length" class="results-table">
             <thead>
               <tr>
                 <th>Rang</th>
@@ -651,15 +579,86 @@ onMounted(() => {
               </tr>
             </tbody>
           </table>
-
-          <p v-if="allLinesDrawn && rankedPlayers.length > 0 && masterkillEvent.status === 'completed' && (bonusAwarded || !masterkillEvent.has_bonus_reel)" class="overall-winner-announce">
+          <p v-if="allLinesDrawn && rankedPlayers.length > 0 && masterkillEvent.status === 'completed'" class="overall-winner-announce">
             Vainqueur : <strong>{{ rankedPlayers[0].gamertag }}</strong> !
           </p>
+          <hr v-if="allLinesDrawn && rankedPlayers.length">
+
+          <div v-if="allLinesDrawn" class="detailed-stats-section-results">
+            <h3>Statistiques Détaillées Finales</h3>
+            <h4>Rapport de Combat Complet</h4>
+            <div class="table-responsive">
+                <table class="stats-table detailed-summary-table">
+                    <thead>
+                    <tr>
+                        <th>Opérateur</th>
+                        <th>Score&nbsp;Final</th>
+                        <th>Kills</th>
+                        <th>Morts</th>
+                        <th>K/D</th>
+                        <th>Assists (Info)</th>
+                        <th>Réanimations</th>
+                        <th>Moy.&nbsp;Kills/P.</th>
+                        <th>Goulags&nbsp;G.</th>
+                        <th>Goulags&nbsp;P.</th>
+                        <th>Ratio&nbsp;Goulag</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr v-for="playerStat in detailedPlayerStatsResults" :key="`results-stat-${playerStat.id}`">
+                        <td>{{ playerStat.gamertag }}</td>
+                        <td><strong>{{ playerStat.total_score_from_games }}</strong></td>
+                        <td>{{ playerStat.total_kills }}</td>
+                        <td>{{ playerStat.total_deaths }}</td>
+                        <td>{{ playerStat.kd_ratio }}</td>
+                        <td>{{ playerStat.total_assists }}</td>
+                        <td>{{ playerStat.total_revives_done }}</td>
+                        <td>{{ playerStat.average_kills_per_game }}</td>
+                        <td>{{ playerStat.total_gulag_wins }}</td>
+                        <td>{{ playerStat.total_gulag_lost }}</td>
+                        <td>{{ playerStat.gulag_win_ratio }}</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+          </div>
+          <hr v-if="allLinesDrawn">
+          
+          <div v-if="allLinesDrawn" class="map-section-container-results">
+              <h3>Carte des Spawns</h3>
+              <div class="location-selector-mk-results">
+                  <label for="location-select-results">Lieu d'intérêt :</label>
+                  <select id="location-select-results" v-model="selectedMapLocation">
+                  <option :value="null">-- Aucun Lieu --</option>
+                  <option v-for="(details, name) in mapLocations" :key="name" :value="name">
+                      {{ details.name }}
+                  </option>
+                  </select>
+              </div>
+              <div class="map-container-mk-results">
+                  <img :src="mapWarzoneImage" alt="Carte Warzone" class="map-background-image-results">
+                   <div
+                    v-if="selectedMapLocation && mapLocations[selectedMapLocation]"
+                    class="map-point-results selected-spawn-point"
+                    :style="{ 
+                      left: mapLocations[selectedMapLocation].x + '%', 
+                      top: mapLocations[selectedMapLocation].y + '%' 
+                    }"
+                    :title="mapLocations[selectedMapLocation].name"
+                  >★</div>
+                  <div v-for="(game, index) in masterkillEvent.games.filter(g => g.status === 'completed' && g.spawn_location && mapLocations[g.spawn_location])" 
+                      :key="`spawn-point-res-${game.id || index}`"
+                      class="map-point-results game-spawn-point"
+                      :style="{ left: mapLocations[game.spawn_location].x + '%', top: mapLocations[game.spawn_location].y + '%' }"
+                      :title="`${mapLocations[game.spawn_location].name} (Partie ${game.game_number})`"
+                  >{{ game.game_number }}</div>
+              </div>
+          </div>
         </div>
 
         <div class="navigation-actions">
           <RouterLink :to="{ name: 'home' }" class="action-btn">Retour Liste MK</RouterLink>
-          <RouterLink :to="{ name: 'masterkill-detail', params: { id: mkId } }" class="action-btn">Voir Détails (si différent)</RouterLink>
+          <RouterLink :to="{ name: 'masterkill-detail', params: { id: mkId } }" class="action-btn">Revoir Détails du MK</RouterLink>
         </div>
       </div>
       <p v-else>Données de résultats non disponibles.</p>
