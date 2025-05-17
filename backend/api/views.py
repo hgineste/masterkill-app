@@ -408,3 +408,10 @@ class MasterkillKillsBySpawnView(APIView):
             for item in kills_by_spawn if item['game__spawn_location']
         ]
         return Response(data_for_response)
+    
+class MasterkillEventCountView(APIView):
+    permission_classes = [permissions.AllowAny] 
+
+    def get(self, request):
+        count = MasterkillEvent.objects.count()
+        return Response({'count': count})

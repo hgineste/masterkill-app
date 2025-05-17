@@ -7,7 +7,7 @@ import logoWarzone from '@/assets/images/logo-warzone.png';
 const router = useRouter();
 
 const newMK = ref({
-  name: 'Nouveau MK Warzone',
+  name: '', // Sera pré-rempli dans onMounted
   num_games_planned: 3,
   points_kill: 1,
   points_rea: 1,
@@ -18,10 +18,11 @@ const newMK = ref({
   points_humiliation: -1,
   top1_solo_ends_mk: false,
   selected_gage_text: '',
-  has_bonus_reel: true, // NOUVEAU: Option pour la roue des bonus
-  has_kill_multipliers: false, // NOUVEAU: Option pour les multiplicateurs de kills
+  has_bonus_reel: true,
+  has_kill_multipliers: false,
 });
 const createError = ref(null);
+const isLoadingName = ref(false); // Pour l'indicateur de chargement du nom
 
 const gameModes = ref([
   { text: 'Solo (1 joueur)', value: 1 },
@@ -37,8 +38,23 @@ const updatePlayerNameFields = (count) => {
   playerNames.value = Array(num).fill('');
 };
 
+async function fetchMKCountAndSetName() {
+  isLoadingName.value = true;
+  try {
+    const response = await apiClient.get('/masterkillevents/count/');
+    const count = response.data.count || 0;
+    newMK.value.name = `Masterkill ${count + 1}`;
+  } catch (error) {
+    console.error("Erreur lors de la récupération du nombre de MK:", error);
+    newMK.value.name = 'Nouveau Masterkill Warzone'; // Fallback
+  } finally {
+    isLoadingName.value = false;
+  }
+}
+
 onMounted(() => {
   updatePlayerNameFields(selectedPlayerCount.value);
+  fetchMKCountAndSetName(); // Appeler pour définir le nom par défaut
 });
 
 async function handleCreateMasterkill() {
@@ -62,8 +78,8 @@ async function handleCreateMasterkill() {
     top1_solo_ends_mk: newMK.value.top1_solo_ends_mk,
     participant_gamertags: validPlayerNames,
     custom_gage_input_text: newMK.value.selected_gage_text.trim() === '' ? null : newMK.value.selected_gage_text.trim(),
-    has_bonus_reel: newMK.value.has_bonus_reel, // Envoi de la nouvelle option
-    has_kill_multipliers: newMK.value.has_kill_multipliers, // Envoi de la nouvelle option
+    has_bonus_reel: newMK.value.has_bonus_reel,
+    has_kill_multipliers: newMK.value.has_kill_multipliers,
   };
 
   try {
