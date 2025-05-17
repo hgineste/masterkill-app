@@ -7,7 +7,7 @@ import logoWarzone from '@/assets/images/logo-warzone.png';
 const router = useRouter();
 
 const newMK = ref({
-  name: '', // Sera pré-rempli dans onMounted
+  name: '',
   num_games_planned: 3,
   points_kill: 1,
   points_rea: 1,
@@ -22,21 +22,11 @@ const newMK = ref({
   has_kill_multipliers: false,
 });
 const createError = ref(null);
-const isLoadingName = ref(false); // Pour l'indicateur de chargement du nom
+const isLoadingName = ref(false);
+const isLoadingPlayers = ref(false);
 
-const gameModes = ref([
-  { text: 'Solo (1 joueur)', value: 1 },
-  { text: 'Duo (2 joueurs)', value: 2 },
-  { text: 'Trio (3 joueurs)', value: 3 },
-  { text: 'Quatuor (4 joueurs)', value: 4 },
-]);
-const selectedPlayerCount = ref(2);
-const playerNames = ref(['', '']);
-
-const updatePlayerNameFields = (count) => {
-  const num = parseInt(count);
-  playerNames.value = Array(num).fill('');
-};
+const allPlayersList = ref([]);
+const selectedParticipantIds = ref([]);
 
 async function fetchMKCountAndSetName() {
   isLoadingName.value = true;
@@ -46,15 +36,31 @@ async function fetchMKCountAndSetName() {
     newMK.value.name = `Masterkill ${count + 1}`;
   } catch (error) {
     console.error("Erreur lors de la récupération du nombre de MK:", error);
-    newMK.value.name = 'Nouveau Masterkill Warzone'; // Fallback
+    newMK.value.name = 'Nouveau Masterkill Warzone';
   } finally {
     isLoadingName.value = false;
   }
 }
 
+async function fetchAllPlayers() {
+  isLoadingPlayers.value = true;
+  try {
+    const response = await apiClient.get('/players/');
+    allPlayersList.value = response.data.map(player => ({
+      value: player.id,
+      label: player.gamertag
+    }));
+  } catch (error) {
+    console.error("Erreur lors de la récupération de la liste des joueurs:", error);
+    createError.value = "Impossible de charger la liste des joueurs existants.";
+  } finally {
+    isLoadingPlayers.value = false;
+  }
+}
+
 onMounted(() => {
-  updatePlayerNameFields(selectedPlayerCount.value);
-  fetchMKCountAndSetName(); // Appeler pour définir le nom par défaut
+  fetchMKCountAndSetName();
+  fetchAllPlayers();
 });
 
 async function handleCreateMasterkill() {
@@ -63,7 +69,10 @@ async function handleCreateMasterkill() {
     createError.value = "Le nom du Masterkill est requis.";
     return;
   }
-  const validPlayerNames = playerNames.value.map(name => name.trim()).filter(name => name !== '');
+  if (selectedParticipantIds.value.length === 0) {
+    createError.value = "Veuillez sélectionner au moins un participant.";
+    return;
+  }
 
   const payload = {
     name: newMK.value.name,
@@ -76,10 +85,10 @@ async function handleCreateMasterkill() {
     points_execution: parseInt(newMK.value.points_execution) || 0,
     points_humiliation: parseInt(newMK.value.points_humiliation) || 0,
     top1_solo_ends_mk: newMK.value.top1_solo_ends_mk,
-    participant_gamertags: validPlayerNames,
     custom_gage_input_text: newMK.value.selected_gage_text.trim() === '' ? null : newMK.value.selected_gage_text.trim(),
     has_bonus_reel: newMK.value.has_bonus_reel,
     has_kill_multipliers: newMK.value.has_kill_multipliers,
+    participant_ids: selectedParticipantIds.value,
   };
 
   try {
@@ -108,14 +117,12 @@ async function handleCreateMasterkill() {
     <div class="content-wrapper-form">
       <div class="create-mk-form">
         <form @submit.prevent="handleCreateMasterkill">
-
           <div class="form-layout-grid">
-
             <div class="form-column-main">
               <div class="form-section">
                 <div class="form-group">
                   <label for="mk-name">Nom de code du Masterkill :</label>
-                  <input type="text" id="mk-name" v-model.trim="newMK.name" required placeholder="Ex: Opération Tonnerre">
+                  <input type="text" id="mk-name" v-model.trim="newMK.name" required :placeholder="isLoadingName ? 'Chargement...' : 'Ex: Opération Tonnerre'">
                 </div>
                 <div class="form-group">
                   <label for="mk-gage">Gage de l'événement (optionnel) :</label>
@@ -123,28 +130,27 @@ async function handleCreateMasterkill() {
                 </div>
               </div>
 
-              <div class="form-section layout-cols-2">
-                <div class="form-group">
-                  <label for="game-mode">Mode de Jeu (Effectif) :</label>
-                  <select id="game-mode" v-model.number="selectedPlayerCount" @change="updatePlayerNameFields($event.target.value)">
-                    <option v-for="mode in gameModes" :key="mode.value" :value="mode.value">
-                      {{ mode.text }}
-                    </option>
-                  </select>
+              <div class="form-section">
+                <h4 class="form-subtitle">SÉLECTION DES OPÉRATEURS :</h4>
+                <div v-if="isLoadingPlayers" class="loading-players">Chargement des joueurs...</div>
+                <div v-else-if="allPlayersList.length === 0" class="no-players-message">
+                  Aucun joueur existant trouvé. Veuillez en créer via l'interface d'administration.
                 </div>
-                <div class="form-group">
-                  <label for="mk-games">Nombre de Parties Prévues :</label>
-                  <input type="number" id="mk-games" v-model.number="newMK.num_games_planned" min="1">
+                <div v-else class="player-selection-group">
+                  <label>Participants (Sélectionnez dans la liste) :</label>
+                  <div class="checkbox-group-grid">
+                    <div v-for="player in allPlayersList" :key="player.value" class="checkbox-item">
+                      <input type="checkbox" :id="'player-' + player.value" :value="player.value" v-model="selectedParticipantIds">
+                      <label :for="'player-' + player.value">{{ player.label }}</label>
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              <div v-if="selectedPlayerCount > 0" class="form-section">
-                <h4 class="form-subtitle">IDENTIFICATION DES OPÉRATEURS :</h4>
-                <div class="player-inputs-grid" :style="{'grid-template-columns': `repeat(${selectedPlayerCount > 2 ? 2 : selectedPlayerCount}, 1fr)`}">
-                  <div v-for="(name, index) in playerNames" :key="index" class="form-group">
-                    <label :for="'player-name-' + index">Opérateur {{ index + 1 }} :</label>
-                    <input type="text" :id="'player-name-' + index" v-model.trim="playerNames[index]" placeholder="Gamertag">
-                  </div>
+              
+              <div class="form-section layout-cols-2">
+                 <div class="form-group">
+                  <label for="mk-games">Nombre de Parties Prévues :</label>
+                  <input type="number" id="mk-games" v-model.number="newMK.num_games_planned" min="1">
                 </div>
               </div>
             </div>

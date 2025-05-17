@@ -23,5 +23,7 @@ urlpatterns = [
     path('users/me/', views.CurrentUserView.as_view(), name='current-user'),
     path('auth/register/', views.UserRegistrationView.as_view(), name='user-register'),
     path('masterkillevents/count/', views.MasterkillEventCountView.as_view(), name='masterkillevent-count'),
+    path('players/', views.PlayerListView.as_view(), name='player-list'),
+
 
 ]

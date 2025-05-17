@@ -38,9 +38,11 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
     selected_gage_text = serializers.CharField(source='selected_gage.text', read_only=True, allow_null=True)
     winner_details = PlayerSerializer(source='winner', read_only=True, allow_null=True)
     
-    participant_gamertags = serializers.ListField(
-        child=serializers.CharField(max_length=100, allow_blank=False),
-        write_only=True, required=False, allow_empty=True
+    participant_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True, 
+        required=False,
+        allow_empty=True
     )
     custom_gage_input_text = serializers.CharField(
         write_only=True, required=False, allow_blank=True, allow_null=True
@@ -64,7 +66,8 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
             'selected_gage', 'selected_gage_text', 'custom_gage_input_text',
             'has_bonus_reel', 'has_kill_multipliers',
             'status', 'winner', 'winner_details',
-            'participants', 'participants_details', 'participant_gamertags',
+            'participants', 'participants_details', 
+            'participant_ids', 
             'current_game_info', 'games', 'completed_games_count'
         ]
         read_only_fields = [
@@ -96,13 +99,12 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
             return {'game_number': 1, 'status': 'pending', 'id': None, 'masterkill_event': obj.id}
         return None
 
-    def _handle_participants(self, instance, participant_gamertags):
-        if participant_gamertags is not None:
-            instance.participants.clear() 
-            for gamertag in participant_gamertags:
-                if gamertag and gamertag.strip():
-                    player, _ = Player.objects.get_or_create(gamertag=gamertag.strip())
-                    instance.participants.add(player)
+    def _handle_participants(self, instance, participant_ids):
+        if participant_ids is not None:
+            valid_players = Player.objects.filter(id__in=participant_ids)
+            instance.participants.set(valid_players)
+        elif participant_ids == []:
+             instance.participants.clear()
 
     def _handle_gage(self, instance, custom_gage_input_text):
         if custom_gage_input_text and custom_gage_input_text.strip():
@@ -111,30 +113,30 @@ class MasterkillEventSerializer(serializers.ModelSerializer):
                 defaults={'text': custom_gage_input_text.strip()}
             )
             instance.selected_gage = gage_obj
-        elif custom_gage_input_text is not None:
+        elif 'custom_gage_input_text' in self.initial_data and custom_gage_input_text is None : 
             instance.selected_gage = None
 
     def create(self, validated_data):
-        participant_gamertags = validated_data.pop('participant_gamertags', [])
+        participant_ids = validated_data.pop('participant_ids', [])
         custom_gage_input_text = validated_data.pop('custom_gage_input_text', None)
         
         instance = super().create(validated_data)
         
-        self._handle_participants(instance, participant_gamertags)
-        self._handle_gage(instance, custom_gage_input_text)
+        self._handle_participants(instance, participant_ids)
         
-        if custom_gage_input_text is not None :
-             instance.save()
+        if 'custom_gage_input_text' in self.initial_data:
+            self._handle_gage(instance, custom_gage_input_text)
+            instance.save()
         return instance
 
     def update(self, instance, validated_data):
-        participant_gamertags = validated_data.pop('participant_gamertags', None)
+        participant_ids = validated_data.pop('participant_ids', None)
         custom_gage_input_text = validated_data.pop('custom_gage_input_text', None)
 
         instance = super().update(instance, validated_data)
 
-        if participant_gamertags is not None:
-            self._handle_participants(instance, participant_gamertags)
+        if participant_ids is not None:
+            self._handle_participants(instance, participant_ids)
         
         if 'custom_gage_input_text' in self.initial_data:
             self._handle_gage(instance, custom_gage_input_text)

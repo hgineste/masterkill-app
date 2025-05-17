@@ -415,3 +415,8 @@ class MasterkillEventCountView(APIView):
     def get(self, request):
         count = MasterkillEvent.objects.count()
         return Response({'count': count})
+
+class PlayerListView(generics.ListAPIView):
+    queryset = Player.objects.all().order_by('gamertag')
+    serializer_class = PlayerSerializer
+    permission_classes = [permissions.IsAuthenticated]
