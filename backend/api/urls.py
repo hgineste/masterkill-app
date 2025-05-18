@@ -12,18 +12,16 @@ urlpatterns = [
     path('masterkillevents/<int:pk>/game-scores/', views.MasterkillGameScoresView.as_view(), name='masterkillevent-game-scores'),
     path('masterkillevents/<int:pk>/apply_bonus/', views.ApplyBonusView.as_view(), name='masterkillevent-apply-bonus'),
     path('masterkillevents/<int:pk>/kills-by-spawn/', views.MasterkillKillsBySpawnView.as_view(), name='masterkillevent-kills-by-spawn'),
+    path('masterkillevents/count/', views.MasterkillEventCountView.as_view(), name='masterkillevent-count'),
     
     path('games/<int:game_pk>/complete/', views.EndGameAPIView.as_view(), name='game-complete'),
     
     path('redeployevents/', views.RedeployEventCreateView.as_view(), name='redeployevent-create'),
-    path('reviveevents/', views.ReviveEventCreateView.as_view(), name='reviveevent-create'), # NOUVELLE URL
+    path('reviveevents/', views.ReviveEventCreateView.as_view(), name='reviveevent-create'),
     
     path('rankings/all-time/', views.AllTimePlayerRankingView.as_view(), name='all-time-ranking'),
     
     path('users/me/', views.CurrentUserView.as_view(), name='current-user'),
     path('auth/register/', views.UserRegistrationView.as_view(), name='user-register'),
-    path('masterkillevents/count/', views.MasterkillEventCountView.as_view(), name='masterkillevent-count'),
-    path('players/', views.PlayerListView.as_view(), name='player-list'),
-
-
+    path('users/list-for-participation/', views.UserListView.as_view(), name='user-list-for-participation'), 
 ]
