@@ -72,7 +72,7 @@ const chartOptionsDetail = ref({
 });
 
 watch(activeGame, (newVal, oldVal) => {
-  if ((newVal && newVal.id && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
+  if ((newVal && (newVal.id !== undefined) && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
      if (!oldVal || newVal.id !== oldVal.id || (newVal.status === 'pending' && oldVal.status !== 'pending') || (newVal.status === 'inprogress' && oldVal.status !== 'inprogress') || !newVal ) {
         initializeCurrentGameStats();
         gameSpawnLocationInput.value = newVal?.spawn_location || '';
@@ -89,10 +89,10 @@ async function fetchAggregatedStats() {
   try {
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/aggregated-stats/`);
     mkAggregatedStats.value = response.data || [];
+    console.log("Fetched Aggregated Stats:", JSON.parse(JSON.stringify(mkAggregatedStats.value)));
   } catch (err) {
     console.error("Erreur fetch stats agrégées:", err.response?.data || err.message || err);
     mkAggregatedStats.value = [];
-    // Ne pas écraser l'erreur principale de fetchMKDetails ici, sauf si c'est une erreur spécifique à cette étape
   }
 }
 
@@ -130,15 +130,20 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
       isLoading.value = false; return;
     }
     masterkillEvent.value = response.data;
+    console.log("Fetched Masterkill Event Data:", JSON.parse(JSON.stringify(masterkillEvent.value)));
+    if (masterkillEvent.value && masterkillEvent.value.participants_details) {
+        console.log("Participants Details:", JSON.parse(JSON.stringify(masterkillEvent.value.participants_details)));
+    }
 
-    if (!masterkillEvent.value) { // Double vérification si response.data était un objet vide non null
+
+    if (!masterkillEvent.value) {
         error.value = `Données MK invalides pour l'ID ${mkId.value}.`;
         isLoading.value = false; return;
     }
     
     const gameInfoFromServer = masterkillEvent.value.current_game_info;
 
-    if (gameInfoFromServer && (gameInfoFromServer.id !== undefined || gameInfoFromServer.status === 'pending')) { // Vérifier existence de id
+    if (gameInfoFromServer && (gameInfoFromServer.id !== undefined || gameInfoFromServer.status === 'pending')) {
       activeGame.value = gameInfoFromServer;
       gameSpawnLocationInput.value = gameInfoFromServer.spawn_location || '';
     } else if (masterkillEvent.value.status === 'pending') {
@@ -168,8 +173,8 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
      }
 
   } catch (err) {
-    console.error(`Erreur détaillée lors du chargement de MK ${mkId.value}:`, err.response || err.message || err);
-    error.value = `Impossible de charger les détails du MK ${mkId.value}. Erreur API ou données manquantes.`;
+    console.error(`Erreur détaillée lors du chargement de MK ${mkId.value}:`, err.response?.data || err.message || err);
+    error.value = `Impossible de charger les détails du MK ${mkId.value}. Vérifiez la console.`;
     masterkillEvent.value = null; 
   } finally { isLoading.value = false; }
 }
@@ -177,7 +182,7 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
 function initializeCurrentGameStats() {
   if (masterkillEvent.value?.participants_details) {
     const stats = {};
-    masterkillEvent.value.participants_details.forEach(user => { // participants_details sont maintenant des User
+    masterkillEvent.value.participants_details.forEach(user => {
       stats[user.id] = {
         kills: 0, deaths: 0, assists: 0, gulag_status: 'not_played',
         revives_done: 0, times_executed_enemy: 0, times_got_executed: 0,
@@ -319,7 +324,7 @@ async function handleEndGame() {
   }
   if (!confirm(`Terminer Partie ${activeGame.value.game_number} et enregistrer scores (Spawn: ${gameSpawnLocationInput.value || 'Non défini'}) ?`)) return;
 
-  const playerStatsPayloadList = masterkillEvent.value.participants_details.map(user => { // Utiliser user car participants_details sont des User
+  const playerStatsPayloadList = masterkillEvent.value.participants_details.map(user => {
     const stats = currentGameStats.value[user.id] || {};
     return {
       player_id: user.id, kills: stats.kills || 0, deaths: stats.deaths || 0,
@@ -383,12 +388,12 @@ function prepareChartDataForDetail() {
   
   if (numGames === 0 && mkAggregatedStats.value.length > 0) {
     chartLabelsDetail.value = ["Début", "Score Final"];
-    chartDatasetsDetail.value = participants.map(user => { // user au lieu de player
+    chartDatasetsDetail.value = participants.map(user => {
         const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
-        const aggPlayerStat = mkAggregatedStats.value.find(s => s.player.id === user.id); // s.player.id (User)
+        const aggPlayerStat = mkAggregatedStats.value.find(s => s.player.id === user.id);
         const finalScoreFromAgg = aggPlayerStat ? (aggPlayerStat.total_score_from_games || 0) : 0;
         return {
-            label: user.username, data: [0, finalScoreFromAgg], borderColor: `rgb(${r},${g},${b})`, // user.username
+            label: user.username, data: [0, finalScoreFromAgg], borderColor: `rgb(${r},${g},${b})`,
             backgroundColor: `rgba(${r},${g},${b},0.15)`, tension: 0.4, fill: 'origin',
             pointRadius: 5, pointBackgroundColor: `rgb(${r},${g},${b})`,
             pointHoverRadius: 7, pointHoverBorderWidth: 2, borderWidth: 3,
@@ -399,21 +404,21 @@ function prepareChartDataForDetail() {
   
   chartLabelsDetail.value = ["Début", ...Array.from({ length: numGames }, (_, i) => `Partie ${i + 1}`), "Score Final"];
   
-  chartDatasetsDetail.value = participants.map(user => { // user au lieu de player
+  chartDatasetsDetail.value = participants.map(user => {
     const r = Math.floor(Math.random() * 180) + 75; const g = Math.floor(Math.random() * 180) + 75; const b = Math.floor(Math.random() * 180) + 75;
     const playerData = [0];
-    const playerScoresForGames = scoresPerGame[user.id.toString()] || []; // user.id
+    const playerScoresForGames = scoresPerGame[user.id.toString()] || [];
     
     for (let i = 0; i < numGames; i++) {
         const scoreForThisGame = playerScoresForGames[i] !== undefined ? playerScoresForGames[i] : (playerData.length > 0 ? playerData[playerData.length -1] : 0) ;
         playerData.push(scoreForThisGame);
     }
-    const aggPlayerStat = mkAggregatedStats.value.find(s => s.player.id === user.id); // s.player.id (User)
+    const aggPlayerStat = mkAggregatedStats.value.find(s => s.player.id === user.id);
     const finalScoreFromAgg = aggPlayerStat ? (aggPlayerStat.total_score_from_games || 0) : (playerData.length > 0 ? playerData[playerData.length -1] : 0);
     playerData.push(finalScoreFromAgg);
 
     return {
-      label: user.username, data: playerData, borderColor: `rgb(${r},${g},${b})`, // user.username
+      label: user.username, data: playerData, borderColor: `rgb(${r},${g},${b})`,
       backgroundColor: `rgba(${r},${g},${b},0.15)`, tension: 0.4, fill: 'origin',
       pointRadius: 5, pointBackgroundColor: `rgb(${r},${g},${b})`,
       pointHoverRadius: 7, pointHoverBorderWidth: 2, borderWidth: 3,
@@ -440,7 +445,7 @@ const canEndMK = computed(() => {
   return masterkillEvent.value &&
          (masterkillEvent.value.status === 'inprogress' || masterkillEvent.value.status === 'paused');
 });
-const availablePlayersForEvents = computed(() => masterkillEvent.value?.participants_details || []); // Renommé pour plus de clarté
+const availablePlayersForEvents = computed(() => masterkillEvent.value?.participants_details || []);
 const currentDisplayedGameNumber = computed(() => {
     if (activeGame.value && (activeGame.value.status === 'pending' || activeGame.value.status === 'inprogress')) return activeGame.value.game_number;
     if (masterkillEvent.value?.status === 'pending') return 1;
@@ -466,12 +471,15 @@ const rankedPlayerScoresSoFar = computed(() => {
   if (!mkAggregatedStats.value || mkAggregatedStats.value.length === 0) return [];
   return [...mkAggregatedStats.value]
     .sort((a, b) => (b.total_score_from_games || 0) - (a.total_score_from_games || 0))
-    .map((pStat, index) => ({
-      rank: index + 1, 
-      gamertag: pStat.player.username, // Utiliser username
-      totalScore: pStat.total_score_from_games || 0, 
-      playerId: pStat.player.id
-    }));
+    .map((pStat, index) => {
+      const user = pStat.player; // user est {id, username}
+      return {
+        rank: index + 1, 
+        gamertag: user.username, // Afficher username
+        totalScore: pStat.total_score_from_games || 0, 
+        playerId: user.id
+      }
+    });
 });
 
 const determinedWinnerGamertag = computed(() => {
@@ -479,7 +487,7 @@ const determinedWinnerGamertag = computed(() => {
     return masterkillEvent.value.winner_details.username;
   }
   if (masterkillEvent.value?.status === 'completed' && rankedPlayerScoresSoFar.value.length > 0) {
-    return rankedPlayerScoresSoFar.value[0].gamertag; // rankedPlayerScoresSoFar utilise déjà username pour gamertag
+    return rankedPlayerScoresSoFar.value[0].gamertag; // gamertag ici est en fait username
   }
   return 'Non déterminé';
 });
@@ -514,7 +522,7 @@ const averageKillsPerGameOverall = computed(() => {
 const detailedPlayerStats = computed(() => {
   if (!mkAggregatedStats.value || mkAggregatedStats.value.length === 0 || !masterkillEvent.value) return [];
   return mkAggregatedStats.value.map(pStat => {
-    const user = pStat.player; // pStat.player est maintenant un objet User {id, username}
+    const user = pStat.player; // user est {id, username}
     const kills = pStat.total_kills || 0;
     const deaths = pStat.total_deaths || 0;
     const gamesPlayed = pStat.games_played_in_mk ?? completedGamesCountInMK.value ?? 0;
@@ -523,12 +531,12 @@ const detailedPlayerStats = computed(() => {
 
     return {
       id: user.id,
-      gamertag: user.username, // Utiliser username pour l'affichage
+      gamertag: user.username, // Utiliser username
       total_kills: kills,
       total_deaths: deaths,
       kd_ratio: calculateKDRatio(kills, deaths),
       total_assists: pStat.total_assists || 0, 
-      total_revives_done: pStat.total_revives_done || 0, // Ceci viendra de ReviveEvent count
+      total_revives_done: pStat.total_revives_done || 0,
       average_kills_per_game: gamesPlayed > 0 ? (kills / gamesPlayed).toFixed(1) : '0.0',
       total_gulag_wins: gulagWins,
       total_gulag_lost: gulagLost, 
