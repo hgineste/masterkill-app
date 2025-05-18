@@ -137,7 +137,6 @@ async function handleCreateMasterkill() {
                   Aucun joueur existant trouvé. Veuillez en créer via l'interface d'administration.
                 </div>
                 <div v-else class="player-selection-group">
-                  <label>Participants (Sélectionnez dans la liste) :</label>
                   <div class="checkbox-group-grid">
                     <div v-for="player in allPlayersList" :key="player.value" class="checkbox-item">
                       <input type="checkbox" :id="'player-' + player.value" :value="player.value" v-model="selectedParticipantIds">
@@ -196,6 +195,11 @@ async function handleCreateMasterkill() {
 </template>
 
 <style scoped>
+
+.player-selection-group{
+  overflow: auto;
+    height: 50vh;
+}
 .create-masterkill-view {
   min-height: 100vh;
   font-family: "Agency FB", "Roboto Condensed", Arial, sans-serif;

@@ -57,8 +57,8 @@ class MasterkillEvent(models.Model):
     ]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name="Statut")
     
-    participants = models.ManyToManyField(Player, related_name="masterkill_events_participated", blank=True, verbose_name="Participants")
-    winner = models.ForeignKey(Player, on_delete=models.SET_NULL, null=True, blank=True, related_name="masterkills_won", verbose_name="Vainqueur")
+    participants = models.ManyToManyField(User, related_name="masterkill_events_participated", blank=True, verbose_name="Participants")
+    winner = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="masterkills_won", verbose_name="Vainqueur")
 
     def __str__(self):
         return f"MK: {self.name} ({self.get_status_display()})"
@@ -106,7 +106,7 @@ class Game(models.Model):
 
 class GamePlayerStats(models.Model):
     game = models.ForeignKey(Game, related_name='player_stats', on_delete=models.CASCADE, verbose_name="Partie")
-    player = models.ForeignKey(Player, related_name='game_stats', on_delete=models.CASCADE, verbose_name="Joueur")
+    player = models.ForeignKey(User, related_name='game_stats', on_delete=models.CASCADE, verbose_name="Utilisateur Joueur")
     kills = models.PositiveIntegerField(default=0, verbose_name="Kills")
     deaths = models.PositiveIntegerField(default=0, verbose_name="Morts")
     assists = models.PositiveIntegerField(default=0, verbose_name="Assistances")
@@ -129,22 +129,22 @@ class GamePlayerStats(models.Model):
     score_in_game = models.IntegerField(default=0, verbose_name="Score pour cette partie")
 
     class Meta:
-        verbose_name = "Statistique Joueur par Partie"
-        verbose_name_plural = "Statistiques Joueurs par Partie"
+        verbose_name = "Statistique Utilisateur par Partie"
+        verbose_name_plural = "Statistiques Utilisateurs par Partie"
         unique_together = ['game', 'player']
 
     def __str__(self):
-        player_gamertag = self.player.gamertag if self.player else 'Joueur Inconnu'
+        player_username = self.player.username if self.player else 'Utilisateur Inconnu'
         game_info = 'Partie Inconnue'
         if self.game:
             mk_name = self.game.masterkill_event.name if self.game.masterkill_event else 'MK Inconnu'
             game_info = f"Partie {self.game.game_number} (MK \"{mk_name}\")"
-        return f"{player_gamertag} dans {game_info}"
+        return f"{player_username} dans {game_info}"
 
 class RedeployEvent(models.Model):
     game = models.ForeignKey(Game, related_name='redeploy_events', on_delete=models.CASCADE, verbose_name="Partie Concernée")
-    redeployer_player = models.ForeignKey(Player, related_name='initiated_redeploys', on_delete=models.CASCADE, verbose_name="Joueur qui redéploie")
-    redeployed_player = models.ForeignKey(Player, related_name='was_redeployed_by_log', on_delete=models.CASCADE, verbose_name="Joueur redéployé")
+    redeployer_player = models.ForeignKey(User, related_name='initiated_redeploys', on_delete=models.CASCADE, verbose_name="Utilisateur qui redéploie")
+    redeployed_player = models.ForeignKey(User, related_name='was_redeployed_by_log', on_delete=models.CASCADE, verbose_name="Utilisateur redéployé")
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name="Horodatage")
 
     class Meta:
@@ -153,16 +153,16 @@ class RedeployEvent(models.Model):
         ordering = ['-timestamp']
 
     def __str__(self):
-        redeployer_name = self.redeployer_player.gamertag if self.redeployer_player else 'N/A'
-        redeployed_name = self.redeployed_player.gamertag if self.redeployed_player else 'N/A'
+        redeployer_name = self.redeployer_player.username if self.redeployer_player else 'N/A'
+        redeployed_name = self.redeployed_player.username if self.redeployed_player else 'N/A'
         game_info = f"Partie {self.game.game_number}" if self.game else "Partie Inconnue"
         mk_info = f"(MK {self.game.masterkill_event.name})" if self.game and self.game.masterkill_event else ""
         return f"{redeployer_name} a redéployé {redeployed_name} dans {game_info} {mk_info}"
 
 class ReviveEvent(models.Model):
     game = models.ForeignKey(Game, related_name='revive_events', on_delete=models.CASCADE, verbose_name="Partie Concernée")
-    reviver_player = models.ForeignKey(Player, related_name='revives_performed', on_delete=models.CASCADE, verbose_name="Joueur qui réanime")
-    revived_player = models.ForeignKey(Player, related_name='was_revived_events', on_delete=models.CASCADE, verbose_name="Joueur réanimé")
+    reviver_player = models.ForeignKey(User, related_name='revives_performed', on_delete=models.CASCADE, verbose_name="Utilisateur qui réanime")
+    revived_player = models.ForeignKey(User, related_name='was_revived_events', on_delete=models.CASCADE, verbose_name="Utilisateur réanimé")
     timestamp = models.DateTimeField(auto_now_add=True, verbose_name="Horodatage")
 
     class Meta:
@@ -171,8 +171,8 @@ class ReviveEvent(models.Model):
         ordering = ['-timestamp']
 
     def __str__(self):
-        reviver_name = self.reviver_player.gamertag if self.reviver_player else 'N/A'
-        revived_name = self.revived_player.gamertag if self.revived_player else 'N/A'
+        reviver_name = self.reviver_player.username if self.reviver_player else 'N/A'
+        revived_name = self.revived_player.username if self.revived_player else 'N/A'
         game_info = f"Partie {self.game.game_number}" if self.game else "Partie Inconnue"
         mk_info = f"(MK {self.game.masterkill_event.name})" if self.game and self.game.masterkill_event else ""
         return f"{reviver_name} a réanimé {revived_name} dans {game_info} {mk_info}"
