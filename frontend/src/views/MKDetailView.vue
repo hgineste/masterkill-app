@@ -72,6 +72,7 @@ const chartOptionsDetail = ref({
 });
 
 watch(activeGame, (newVal, oldVal) => {
+  console.log("WATCH activeGame: newVal", newVal, "oldVal", oldVal);
   if ((newVal && (newVal.id !== undefined) && (newVal.status === 'inprogress' || newVal.status === 'pending')) || (!newVal && oldVal)) {
      if (!oldVal || newVal.id !== oldVal.id || (newVal.status === 'pending' && oldVal.status !== 'pending') || (newVal.status === 'inprogress' && oldVal.status !== 'inprogress') || !newVal ) {
         initializeCurrentGameStats();
@@ -83,12 +84,16 @@ watch(activeGame, (newVal, oldVal) => {
 }, { deep: true });
 
 async function fetchAggregatedStats() {
+  console.log("fetchAggregatedStats called");
   if (!masterkillEvent.value || masterkillEvent.value.status === 'pending') {
+    console.log("fetchAggregatedStats: SKIPPING - MK not loaded or is pending");
     mkAggregatedStats.value = []; return;
   }
   try {
+    console.log(`WorkspaceAggregatedStats: Fetching for MK ID ${mkId.value}`);
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/aggregated-stats/`);
     mkAggregatedStats.value = response.data || [];
+    console.log("Fetched Aggregated Stats:", JSON.parse(JSON.stringify(mkAggregatedStats.value)));
   } catch (err) {
     console.error("Erreur fetch stats agrégées:", err.response?.data || err.message || err);
     mkAggregatedStats.value = [];
@@ -96,6 +101,7 @@ async function fetchAggregatedStats() {
 }
 
 async function fetchKillsBySpawn() {
+  console.log("fetchKillsBySpawn called");
   if (!masterkillEvent.value || masterkillEvent.value.status !== 'completed') {
     killsBySpawnData.value = [];
     return;
@@ -104,6 +110,7 @@ async function fetchKillsBySpawn() {
   try {
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/kills-by-spawn/`);
     killsBySpawnData.value = response.data || [];
+    console.log("Fetched Kills By Spawn:", JSON.parse(JSON.stringify(killsBySpawnData.value)));
   } catch (err) {
     console.error("Erreur fetch kills par spawn:", err.response?.data || err.message || err);
     killsBySpawnData.value = [];
@@ -113,6 +120,7 @@ async function fetchKillsBySpawn() {
 }
 
 async function fetchMKDetails(resetStatsIfNeeded = true) {
+  console.log("fetchMKDetails called, resetStatsIfNeeded:", resetStatsIfNeeded);
   isLoading.value = true; error.value = null;
   masterkillEvent.value = null; 
   activeGame.value = null;    
@@ -123,19 +131,32 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
   let initialActiveGameStatus = activeGame.value?.status;
 
   try {
+    console.log(`WorkspaceMKDetails: Fetching MK ID ${mkId.value}`);
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/`);
+    console.log("fetchMKDetails: API Response Status:", response.status);
+    console.log("fetchMKDetails: API Response Data:", JSON.parse(JSON.stringify(response.data)));
+
     if (!response.data) {
       error.value = `Aucune donnée reçue pour l'événement MK ${mkId.value}.`;
-      isLoading.value = false; return;
+      isLoading.value = false; 
+      console.error(error.value);
+      return;
     }
     masterkillEvent.value = response.data;
-    
+    console.log("Fetched Masterkill Event Data (masterkillEvent.value):", JSON.parse(JSON.stringify(masterkillEvent.value)));
+    if (masterkillEvent.value && masterkillEvent.value.participants_details) {
+        console.log("Participants Details from masterkillEvent.value:", JSON.parse(JSON.stringify(masterkillEvent.value.participants_details)));
+    }
+
     if (!masterkillEvent.value) {
-        error.value = `Données MK invalides pour l'ID ${mkId.value}.`;
-        isLoading.value = false; return;
+        error.value = `Données MK invalides pour l'ID ${mkId.value} après assignation.`;
+        isLoading.value = false; 
+        console.error(error.value);
+        return;
     }
     
     const gameInfoFromServer = masterkillEvent.value.current_game_info;
+    console.log("gameInfoFromServer:", JSON.parse(JSON.stringify(gameInfoFromServer)));
 
     if (gameInfoFromServer && (gameInfoFromServer.id !== undefined || gameInfoFromServer.status === 'pending')) {
       activeGame.value = gameInfoFromServer;
@@ -150,6 +171,8 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
         gameSpawnLocationInput.value = '';
       } else { activeGame.value = null; }
     } else { activeGame.value = null; }
+    console.log("activeGame.value after logic:", JSON.parse(JSON.stringify(activeGame.value)));
+
 
     if (masterkillEvent.value.status !== 'pending') {
       await fetchAggregatedStats();
@@ -174,6 +197,7 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
 }
 
 function initializeCurrentGameStats() {
+  console.log("initializeCurrentGameStats called");
   if (masterkillEvent.value?.participants_details) {
     const stats = {};
     masterkillEvent.value.participants_details.forEach(user => {
@@ -184,7 +208,11 @@ function initializeCurrentGameStats() {
       };
     });
     currentGameStats.value = stats;
-  } else { currentGameStats.value = {}; }
+    console.log("currentGameStats initialized:", JSON.parse(JSON.stringify(currentGameStats.value)))
+  } else { 
+    currentGameStats.value = {}; 
+    console.log("currentGameStats not initialized, no participants_details");
+  }
 }
 
 function changeStat(playerId, statName, delta) {
@@ -366,7 +394,7 @@ async function fetchGameByGameScoresForDetailChart() {
     if (gameByGameScoresDataDetail.value?.player_scores_per_game) {
         prepareChartDataForDetail();
     } else { chartLabelsDetail.value = []; chartDatasetsDetail.value = []; }
-  } catch (err) { console.error("Erreur fetch scores par partie pour détail:", err); }
+  } catch (err) { console.error("Erreur fetch scores par partie pour détail:", err.response?.data || err.message || err); }
   finally { isLoadingGraphDataDetail.value = false; }
 }
 
@@ -469,19 +497,19 @@ const rankedPlayerScoresSoFar = computed(() => {
       const user = pStat.player;
       return {
         rank: index + 1, 
-        gamertag: user.username,
+        username: user.username, // Utiliser username ici
         totalScore: pStat.total_score_from_games || 0, 
         playerId: user.id
       }
     });
 });
 
-const determinedWinnerGamertag = computed(() => {
+const determinedWinnerGamertag = computed(() => { // Devrait être determinedWinnerUsername
   if (masterkillEvent.value?.winner_details?.username) {
     return masterkillEvent.value.winner_details.username;
   }
   if (masterkillEvent.value?.status === 'completed' && rankedPlayerScoresSoFar.value.length > 0) {
-    return rankedPlayerScoresSoFar.value[0].gamertag;
+    return rankedPlayerScoresSoFar.value[0].username; // Utiliser username
   }
   return 'Non déterminé';
 });
@@ -516,7 +544,11 @@ const averageKillsPerGameOverall = computed(() => {
 const detailedPlayerStats = computed(() => {
   if (!mkAggregatedStats.value || mkAggregatedStats.value.length === 0 || !masterkillEvent.value) return [];
   return mkAggregatedStats.value.map(pStat => {
-    const user = pStat.player;
+    const user = pStat.player; 
+    if (!user) {
+      console.warn("pStat.player est undefined dans detailedPlayerStats pour pStat:", pStat);
+      return { id: `unknown-${Date.now()}`, username: 'Utilisateur Inconnu', total_kills:0, total_deaths:0, kd_ratio:0, total_assists:0, total_revives_done:0, average_kills_per_game:0, total_gulag_wins:0, total_gulag_lost:0, gulag_win_ratio:'N/A', total_score_from_games:0 };
+    }
     const kills = pStat.total_kills || 0;
     const deaths = pStat.total_deaths || 0;
     const gamesPlayed = pStat.games_played_in_mk ?? completedGamesCountInMK.value ?? 0;
@@ -525,7 +557,7 @@ const detailedPlayerStats = computed(() => {
 
     return {
       id: user.id,
-      gamertag: user.username,
+      username: user.username, 
       total_kills: kills,
       total_deaths: deaths,
       kd_ratio: calculateKDRatio(kills, deaths),
@@ -575,7 +607,7 @@ const detailedPlayerStats = computed(() => {
 
         <h3>Détails Événement</h3>
         <div class="details-grid">
-          <p><strong>Créateur:</strong> {{ masterkillEvent.creator_details?.gamertag || masterkillEvent.creator_details?.username ||'N/A' }}</p>
+          <p><strong>Créateur:</strong> {{ masterkillEvent.creator_details?.username ||'N/A' }}</p>
           <p><strong>Créé le:</strong> {{ new Date(masterkillEvent.created_at).toLocaleDateString('fr-FR') }}</p>
           <p v-if="masterkillEvent.status === 'completed'"><strong>Durée du MK:</strong> {{ durationOfMK }}</p>
           <p><strong>Parties Prévues:</strong> {{ masterkillEvent.num_games_planned }}</p>
@@ -596,7 +628,7 @@ const detailedPlayerStats = computed(() => {
         <p v-if="masterkillEvent.top1_solo_ends_mk"><strong>Option:</strong> Le Top 1 Solo met fin à ce MK.</p>
         <h3>Participants</h3>
         <ul v-if="masterkillEvent.participants_details?.length > 0" class="participants-list-detail">
-          <li v-for="player in masterkillEvent.participants_details" :key="player.id" class="participant-tag-detail">{{ player.gamertag }}</li>
+          <li v-for="user in masterkillEvent.participants_details" :key="user.id" class="participant-tag-detail">{{ user.username }}</li>
         </ul>
         <p v-else>Aucun participant.</p>
         <hr>
@@ -622,7 +654,7 @@ const detailedPlayerStats = computed(() => {
                 </thead>
                 <tbody>
                 <tr v-for="playerStat in detailedPlayerStats" :key="`summary-stat-${playerStat.id}`">
-                    <td>{{ playerStat.gamertag }}</td>
+                    <td>{{ playerStat.username }}</td>
                     <td><strong>{{ playerStat.total_score_from_games }}</strong></td>
                     <td>{{ playerStat.total_kills }}</td>
                     <td>{{ playerStat.total_deaths }}</td>
@@ -680,15 +712,15 @@ const detailedPlayerStats = computed(() => {
             <table class="stats-table">
               <thead><tr><th>Opérateur</th><th>Kills</th><th>Morts</th><th>Assist. (Info)</th><th>Réa. (Compteur)</th><th>Goulag</th><th>Redéployé (Compteur)</th><th>Rage Quit?</th></tr></thead>
               <tbody>
-                <tr v-for="player in masterkillEvent.participants_details" :key="player.id">
-                  <td>{{ player.gamertag }}</td>
-                  <td class="stat-cell"><button @click="changeStat(player.id, 'kills', -1)" class="stat-btn">-</button><span>{{ currentGameStats[player.id]?.kills || 0 }}</span><button @click="changeStat(player.id, 'kills', 1)" class="stat-btn">+</button></td>
-                  <td class="stat-cell"><button @click="changeStat(player.id, 'deaths', -1)" class="stat-btn">-</button><span>{{ currentGameStats[player.id]?.deaths || 0 }}</span><button @click="changeStat(player.id, 'deaths', 1)" class="stat-btn">+</button></td>
-                  <td class="stat-cell"><button @click="changeStat(player.id, 'assists', -1)" class="stat-btn">-</button><span>{{ currentGameStats[player.id]?.assists || 0 }}</span><button @click="changeStat(player.id, 'assists', 1)" class="stat-btn">+</button></td>
-                  <td class="stat-cell"><span>{{ currentGameStats[player.id]?.revives_done || 0 }}</span></td>
-                  <td><select :value="currentGameStats[player.id]?.gulag_status || 'not_played'" @change="updateGulagStatus(player.id, $event.target.value)" class="stat-select"><option v-for="opt in gulagOptions" :key="opt.value" :value="opt.value">{{ opt.text }}</option></select></td>
-                  <td>{{ currentGameStats[player.id]?.times_redeployed_by_teammate || 0 }}</td>
-                  <td><input type="checkbox" :checked="currentGameStats[player.id]?.rage_quit || false" @change="toggleRageQuit(player.id)" class="stat-checkbox"/></td>
+                <tr v-for="user in masterkillEvent.participants_details" :key="user.id">
+                  <td>{{ user.username }}</td>
+                  <td class="stat-cell"><button @click="changeStat(user.id, 'kills', -1)" class="stat-btn">-</button><span>{{ currentGameStats[user.id]?.kills || 0 }}</span><button @click="changeStat(user.id, 'kills', 1)" class="stat-btn">+</button></td>
+                  <td class="stat-cell"><button @click="changeStat(user.id, 'deaths', -1)" class="stat-btn">-</button><span>{{ currentGameStats[user.id]?.deaths || 0 }}</span><button @click="changeStat(user.id, 'deaths', 1)" class="stat-btn">+</button></td>
+                  <td class="stat-cell"><button @click="changeStat(user.id, 'assists', -1)" class="stat-btn">-</button><span>{{ currentGameStats[user.id]?.assists || 0 }}</span><button @click="changeStat(user.id, 'assists', 1)" class="stat-btn">+</button></td>
+                  <td class="stat-cell"><span>{{ currentGameStats[user.id]?.revives_done || 0 }}</span></td>
+                  <td><select :value="currentGameStats[user.id]?.gulag_status || 'not_played'" @change="updateGulagStatus(user.id, $event.target.value)" class="stat-select"><option v-for="opt in gulagOptions" :key="opt.value" :value="opt.value">{{ opt.text }}</option></select></td>
+                  <td>{{ currentGameStats[user.id]?.times_redeployed_by_teammate || 0 }}</td>
+                  <td><input type="checkbox" :checked="currentGameStats[user.id]?.rage_quit || false" @change="toggleRageQuit(user.id)" class="stat-checkbox"/></td>
                 </tr>
               </tbody>
             </table>
@@ -699,8 +731,8 @@ const detailedPlayerStats = computed(() => {
                     </button>
                     <form v-if="showRedeployLogForm" @submit.prevent="logRedeployEvent" class="log-event-form">
                         <h4>Qui a redéployé qui ?</h4>
-                        <div class="form-group"><label for="redeployer">Redéployeur:</label><select id="redeployer" v-model="redeployData.redeployer_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdplr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
-                        <div class="form-group"><label for="redeployed">Redéployé:</label><select id="redeployed" v-model="redeployData.redeployed_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rdpld-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                        <div class="form-group"><label for="redeployer">Redéployeur:</label><select id="redeployer" v-model="redeployData.redeployer_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForEvents" :key="`rdplr-${p_.id}`" :value="p_.id">{{ p_.username }}</option></select></div>
+                        <div class="form-group"><label for="redeployed">Redéployé:</label><select id="redeployed" v-model="redeployData.redeployed_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForEvents" :key="`rdpld-${p_.id}`" :value="p_.id">{{ p_.username }}</option></select></div>
                         <button type="submit" class="action-btn submit-log-btn">Valider Redéploiement</button><p v-if="redeployError" class="error-message form-error">{{ redeployError }}</p>
                     </form>
                 </div>
@@ -710,8 +742,8 @@ const detailedPlayerStats = computed(() => {
                     </button>
                     <form v-if="showReviveLogForm" @submit.prevent="logReviveEvent" class="log-event-form">
                         <h4>Qui a réanimé qui ?</h4>
-                        <div class="form-group"><label for="reviver">Réanimateur:</label><select id="reviver" v-model="reviveData.reviver_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvr-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
-                        <div class="form-group"><label for="revived">Réanimé:</label><select id="revived" v-model="reviveData.revived_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForRedeploy" :key="`rvd-${p_.id}`" :value="p_.id">{{ p_.gamertag }}</option></select></div>
+                        <div class="form-group"><label for="reviver">Réanimateur:</label><select id="reviver" v-model="reviveData.reviver_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForEvents" :key="`rvr-${p_.id}`" :value="p_.id">{{ p_.username }}</option></select></div>
+                        <div class="form-group"><label for="revived">Réanimé:</label><select id="revived" v-model="reviveData.revived_player_id"><option :value="null">--</option><option v-for="p_ in availablePlayersForEvents" :key="`rvd-${p_.id}`" :value="p_.id">{{ p_.username }}</option></select></div>
                         <button type="submit" class="action-btn submit-log-btn">Valider Réanimation</button><p v-if="reviveError" class="error-message form-error">{{ reviveError }}</p>
                     </form>
                 </div>
@@ -764,7 +796,7 @@ const detailedPlayerStats = computed(() => {
                                 </thead>
                                 <tbody>
                                 <tr v-for="playerStat in detailedPlayerStats" :key="`detail-${playerStat.id}`">
-                                    <td>{{ playerStat.gamertag }}</td>
+                                    <td>{{ playerStat.username }}</td>
                                     <td><strong>{{ playerStat.total_score_from_games }}</strong></td>
                                     <td>{{ playerStat.total_kills }}</td>
                                     <td>{{ playerStat.total_deaths }}</td>
