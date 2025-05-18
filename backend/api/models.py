@@ -71,6 +71,7 @@ class MasterkillEvent(models.Model):
 class Game(models.Model):
     masterkill_event = models.ForeignKey(MasterkillEvent, related_name='games', on_delete=models.CASCADE, verbose_name="Événement Masterkill")
     game_number = models.PositiveIntegerField(verbose_name="Numéro de la partie")
+    squad_leader = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="led_games", verbose_name="Chef d'Escouade")
     STATUS_CHOICES = [
         ('pending', 'En attente'),
         ('inprogress', 'En cours'),
@@ -93,7 +94,8 @@ class Game(models.Model):
     def __str__(self):
         mk_name = self.masterkill_event.name if self.masterkill_event else 'MK Inconnu'
         spawn_info = f" (Spawn: {self.spawn_location})" if self.spawn_location else ""
-        return f"MK \"{mk_name}\" - Partie {self.game_number}{spawn_info} ({self.get_status_display()})"
+        leader_info = f" (Leader: {self.squad_leader.username})" if self.squad_leader else ""
+        return f"MK \"{mk_name}\" - P{self.game_number}{leader_info}{spawn_info} ({self.get_status_display()})"
 
     def determine_and_set_kill_multiplier(self):
         if self.masterkill_event.has_kill_multipliers:

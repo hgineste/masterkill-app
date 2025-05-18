@@ -23,10 +23,10 @@ const newMK = ref({
 });
 const createError = ref(null);
 const isLoadingName = ref(false);
-const isLoadingPlayers = ref(false);
+const isLoadingUsers = ref(false); // Renommé pour clarté
 
-const allPlayersList = ref([]);
-const selectedParticipantIds = ref([]);
+const allUsersList = ref([]); // Pour stocker la liste des User
+const selectedParticipantUserIds = ref([]); // Pour stocker les IDs des User sélectionnés
 
 async function fetchMKCountAndSetName() {
   isLoadingName.value = true;
@@ -42,25 +42,27 @@ async function fetchMKCountAndSetName() {
   }
 }
 
-async function fetchAllPlayers() {
-  isLoadingPlayers.value = true;
+async function fetchAllUsers() {
+  isLoadingUsers.value = true;
   try {
-    const response = await apiClient.get('/players/');
-    allPlayersList.value = response.data.map(player => ({
-      value: player.id,
-      label: player.gamertag
+    // Assurez-vous d'avoir un endpoint backend qui liste les utilisateurs
+    // Par exemple, /api/users/list/ ou similaire, qui utilise UserSerializer
+    const response = await apiClient.get('/users/list-for-participation/'); // ENDPOINT À VÉRIFIER/CRÉER
+    allUsersList.value = response.data.map(user => ({
+      value: user.id,
+      label: user.username // Utiliser username au lieu de gamertag
     }));
   } catch (error) {
-    console.error("Erreur lors de la récupération de la liste des joueurs:", error);
-    createError.value = "Impossible de charger la liste des joueurs existants.";
+    console.error("Erreur lors de la récupération de la liste des utilisateurs:", error);
+    createError.value = "Impossible de charger la liste des utilisateurs existants.";
   } finally {
-    isLoadingPlayers.value = false;
+    isLoadingUsers.value = false;
   }
 }
 
 onMounted(() => {
   fetchMKCountAndSetName();
-  fetchAllPlayers();
+  fetchAllUsers();
 });
 
 async function handleCreateMasterkill() {
@@ -69,7 +71,7 @@ async function handleCreateMasterkill() {
     createError.value = "Le nom du Masterkill est requis.";
     return;
   }
-  if (selectedParticipantIds.value.length === 0) {
+  if (selectedParticipantUserIds.value.length === 0) {
     createError.value = "Veuillez sélectionner au moins un participant.";
     return;
   }
@@ -88,7 +90,7 @@ async function handleCreateMasterkill() {
     custom_gage_input_text: newMK.value.selected_gage_text.trim() === '' ? null : newMK.value.selected_gage_text.trim(),
     has_bonus_reel: newMK.value.has_bonus_reel,
     has_kill_multipliers: newMK.value.has_kill_multipliers,
-    participant_ids: selectedParticipantIds.value,
+    participant_ids: selectedParticipantUserIds.value, // Utiliser participant_ids
   };
 
   try {
@@ -99,7 +101,20 @@ async function handleCreateMasterkill() {
     createError.value = "Erreur lors de la création du MK. ";
     if (err.response && err.response.data) {
       for (const key in err.response.data) {
-        createError.value += `${key}: ${err.response.data[key].join ? err.response.data[key].join(', ') : err.response.data[key]} `;
+        // Si la réponse d'erreur est une chaîne simple (non_field_errors)
+        if (typeof err.response.data[key] === 'string') {
+            createError.value += `${key}: ${err.response.data[key]} `;
+        } 
+        // Si la réponse d'erreur est une liste (cas typique pour les erreurs de champ)
+        else if (Array.isArray(err.response.data[key])) {
+            createError.value += `${key}: ${err.response.data[key].join(', ')} `;
+        } 
+        // Gérer d'autres structures d'erreur si nécessaire
+        else if (typeof err.response.data[key] === 'object') {
+             for (const subKey in err.response.data[key]) {
+                 createError.value += `${subKey}: ${err.response.data[key][subKey].join(', ')} `;
+             }
+        }
       }
     } else {
       createError.value += err.message;
@@ -131,16 +146,17 @@ async function handleCreateMasterkill() {
               </div>
 
               <div class="form-section">
-                <h4 class="form-subtitle">SÉLECTION DES OPÉRATEURS :</h4>
-                <div v-if="isLoadingPlayers" class="loading-players">Chargement des joueurs...</div>
-                <div v-else-if="allPlayersList.length === 0" class="no-players-message">
-                  Aucun joueur existant trouvé. Veuillez en créer via l'interface d'administration.
+                <h4 class="form-subtitle">SÉLECTION DES OPÉRATEURS (UTILISATEURS INSCRITS) :</h4>
+                <div v-if="isLoadingUsers" class="loading-players">Chargement des utilisateurs...</div>
+                <div v-else-if="allUsersList.length === 0" class="no-players-message">
+                  Aucun utilisateur existant trouvé. Les participants doivent être des utilisateurs inscrits.
                 </div>
                 <div v-else class="player-selection-group">
+                  <label>Participants :</label>
                   <div class="checkbox-group-grid">
-                    <div v-for="player in allPlayersList" :key="player.value" class="checkbox-item">
-                      <input type="checkbox" :id="'player-' + player.value" :value="player.value" v-model="selectedParticipantIds">
-                      <label :for="'player-' + player.value">{{ player.label }}</label>
+                    <div v-for="user in allUsersList" :key="user.value" class="checkbox-item">
+                      <input type="checkbox" :id="'user-' + user.value" :value="user.value" v-model="selectedParticipantUserIds">
+                      <label :for="'user-' + user.value">{{ user.label }}</label>
                     </div>
                   </div>
                 </div>
