@@ -89,7 +89,6 @@ async function fetchAggregatedStats() {
   try {
     const response = await apiClient.get(`/masterkillevents/${mkId.value}/aggregated-stats/`);
     mkAggregatedStats.value = response.data || [];
-    console.log("Fetched Aggregated Stats:", JSON.parse(JSON.stringify(mkAggregatedStats.value)));
   } catch (err) {
     console.error("Erreur fetch stats agrégées:", err.response?.data || err.message || err);
     mkAggregatedStats.value = [];
@@ -130,12 +129,7 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
       isLoading.value = false; return;
     }
     masterkillEvent.value = response.data;
-    console.log("Fetched Masterkill Event Data:", JSON.parse(JSON.stringify(masterkillEvent.value)));
-    if (masterkillEvent.value && masterkillEvent.value.participants_details) {
-        console.log("Participants Details:", JSON.parse(JSON.stringify(masterkillEvent.value.participants_details)));
-    }
-
-
+    
     if (!masterkillEvent.value) {
         error.value = `Données MK invalides pour l'ID ${mkId.value}.`;
         isLoading.value = false; return;
@@ -174,7 +168,7 @@ async function fetchMKDetails(resetStatsIfNeeded = true) {
 
   } catch (err) {
     console.error(`Erreur détaillée lors du chargement de MK ${mkId.value}:`, err.response?.data || err.message || err);
-    error.value = `Impossible de charger les détails du MK ${mkId.value}. Vérifiez la console.`;
+    error.value = `Impossible de charger les détails du MK ${mkId.value}. Erreur API ou données manquantes.`;
     masterkillEvent.value = null; 
   } finally { isLoading.value = false; }
 }
@@ -472,10 +466,10 @@ const rankedPlayerScoresSoFar = computed(() => {
   return [...mkAggregatedStats.value]
     .sort((a, b) => (b.total_score_from_games || 0) - (a.total_score_from_games || 0))
     .map((pStat, index) => {
-      const user = pStat.player; // user est {id, username}
+      const user = pStat.player;
       return {
         rank: index + 1, 
-        gamertag: user.username, // Afficher username
+        gamertag: user.username,
         totalScore: pStat.total_score_from_games || 0, 
         playerId: user.id
       }
@@ -483,11 +477,11 @@ const rankedPlayerScoresSoFar = computed(() => {
 });
 
 const determinedWinnerGamertag = computed(() => {
-  if (masterkillEvent.value?.winner_details?.username) { // Utiliser username
+  if (masterkillEvent.value?.winner_details?.username) {
     return masterkillEvent.value.winner_details.username;
   }
   if (masterkillEvent.value?.status === 'completed' && rankedPlayerScoresSoFar.value.length > 0) {
-    return rankedPlayerScoresSoFar.value[0].gamertag; // gamertag ici est en fait username
+    return rankedPlayerScoresSoFar.value[0].gamertag;
   }
   return 'Non déterminé';
 });
@@ -522,7 +516,7 @@ const averageKillsPerGameOverall = computed(() => {
 const detailedPlayerStats = computed(() => {
   if (!mkAggregatedStats.value || mkAggregatedStats.value.length === 0 || !masterkillEvent.value) return [];
   return mkAggregatedStats.value.map(pStat => {
-    const user = pStat.player; // user est {id, username}
+    const user = pStat.player;
     const kills = pStat.total_kills || 0;
     const deaths = pStat.total_deaths || 0;
     const gamesPlayed = pStat.games_played_in_mk ?? completedGamesCountInMK.value ?? 0;
@@ -531,7 +525,7 @@ const detailedPlayerStats = computed(() => {
 
     return {
       id: user.id,
-      gamertag: user.username, // Utiliser username
+      gamertag: user.username,
       total_kills: kills,
       total_deaths: deaths,
       kd_ratio: calculateKDRatio(kills, deaths),
