@@ -84,6 +84,7 @@ class Game(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     kill_multiplier = models.FloatField(default=1.0, verbose_name="Multiplicateur de Kills")
     spawn_location = models.CharField(max_length=100, null=True, blank=True, verbose_name="Lieu de Spawn")
+    has_auto_stats = models.BooleanField(default=False, verbose_name="Stats auto-remplies")
 
     class Meta:
         verbose_name = "Partie"

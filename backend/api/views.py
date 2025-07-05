@@ -9,6 +9,11 @@ from django.db.models import Sum, Count, Q, F, FloatField, Case, When
 from rest_framework.permissions import IsAuthenticated
 import random
 
+from rest_framework.parsers import MultiPartParser, FormParser
+from ratelimit.decorators import ratelimit
+import os, tempfile
+from .ocr import extract
+
 from .models import Gage, MasterkillEvent, Player, Game, GamePlayerStats, RedeployEvent, ReviveEvent
 from .serializers import (
     GageSerializer, MasterkillEventSerializer, PlayerSerializer,
@@ -34,7 +39,7 @@ class CurrentUserView(APIView):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
 
-class UserListViewForParticipation(generics.ListAPIView): # Vue pour lister les User
+class UserListViewForParticipation(generics.ListAPIView):
     queryset = User.objects.filter(is_staff=False, is_superuser=False).order_by('username')
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -45,16 +50,16 @@ class MasterkillAggregatedStatsView(APIView):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         completed_games = mk_event.games.filter(status='completed')
         aggregated_stats_list = []
-        for participant_user in mk_event.participants.all(): # Itérer sur les User
+        for participant_user in mk_event.participants.all():
             user_data_serialized = UserSerializer(participant_user).data
             
             revives_done_count = ReviveEvent.objects.filter(
                 game__in=completed_games, 
-                reviver_player=participant_user # Filtrer par User
+                reviver_player=participant_user
             ).count()
 
             stats = GamePlayerStats.objects.filter(
-                game__in=completed_games, player=participant_user # Filtrer par User
+                game__in=completed_games, player=participant_user
             ).aggregate(
                 total_kills=Sum('kills', default=0),
                 total_deaths=Sum('deaths', default=0),
@@ -69,7 +74,7 @@ class MasterkillAggregatedStatsView(APIView):
                 games_played_in_mk=Count('game', distinct=True)
             )
             player_aggregated_data = {
-                'player': user_data_serialized, # Utiliser user_data_serialized
+                'player': user_data_serialized,
                 'total_kills': stats['total_kills'],
                 'total_deaths': stats['total_deaths'],
                 'total_assists': stats['total_assists'],
@@ -106,6 +111,7 @@ class ManageGameView(APIView):
     def post(self, request, pk=None):
         mk_event = get_object_or_404(MasterkillEvent, pk=pk)
         action_type = request.data.get('action')
+        squad_leader_id = request.data.get('squad_leader_id', None) # Récupérer l'ID du chef d'escouade
 
         if action_type == 'start_next_game':
             if mk_event.status in ['completed', 'cancelled']:
@@ -138,6 +144,17 @@ class ManageGameView(APIView):
             next_game_to_start.status = 'inprogress'
             next_game_to_start.start_time = timezone.now()
             next_game_to_start.determine_and_set_kill_multiplier()
+
+            if squad_leader_id:
+                try:
+                    leader = User.objects.get(pk=squad_leader_id)
+                    if leader in mk_event.participants.all():
+                        next_game_to_start.squad_leader = leader
+                    else:
+                        return Response({"error": "Le chef d'escouade sélectionné ne participe pas à cet événement."}, status=status.HTTP_400_BAD_REQUEST)
+                except User.DoesNotExist:
+                    return Response({"error": "Chef d'escouade non valide."}, status=status.HTTP_400_BAD_REQUEST)
+            
             next_game_to_start.save()
 
             if mk_event.status == 'pending':
@@ -157,10 +174,9 @@ class RedeployEventCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         redeploy_event = serializer.save()
-        # Note: times_redeployed_by_teammate est sur GamePlayerStats du joueur REDÉPLOYÉ
         stats, _ = GamePlayerStats.objects.get_or_create(
             game=redeploy_event.game, 
-            player=redeploy_event.redeployed_player, # C'est le joueur redéployé qui voit sa stat augmentée
+            player=redeploy_event.redeployed_player,
             defaults={'game_id': redeploy_event.game.id, 'player_id': redeploy_event.redeployed_player.id}
         )
         stats.times_redeployed_by_teammate = (stats.times_redeployed_by_teammate or 0) + 1
@@ -173,10 +189,9 @@ class ReviveEventCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         revive_event = serializer.save()
-        # Mettre à jour le compteur revives_done sur GamePlayerStats pour le joueur qui a réanimé
         stats, _ = GamePlayerStats.objects.get_or_create(
             game=revive_event.game, 
-            player=revive_event.reviver_player, # C'est le joueur qui réanime qui voit sa stat augmentée
+            player=revive_event.reviver_player,
             defaults={'game_id': revive_event.game.id, 'player_id': revive_event.reviver_player.id}
         )
         stats.revives_done = (stats.revives_done or 0) + 1
@@ -196,6 +211,7 @@ class EndGameAPIView(APIView):
 
         player_stats_data_list = request.data.get('player_stats', [])
         game_spawn_location = request.data.get('spawn_location', None) 
+        # Le squad_leader est défini au démarrage de la partie via ManageGameView
 
         if not isinstance(player_stats_data_list, list):
             return Response({"error": "Le champ 'player_stats' doit être une liste."}, status=status.HTTP_400_BAD_REQUEST)
@@ -205,15 +221,14 @@ class EndGameAPIView(APIView):
             player_id = player_data.get('player_id')
             if not player_id: continue
             try:
-                # CORRIGÉ: Doit être User maintenant si toutes les relations ont changé
                 player_instance = User.objects.get(pk=player_id) 
-            except User.DoesNotExist: # CORRIGÉ
+            except User.DoesNotExist:
                 continue
 
             kills = int(player_data.get('kills', 0))
             deaths = int(player_data.get('deaths', 0))
             gulag_status = player_data.get('gulag_status', 'not_played')
-            revives_done_from_payload = int(player_data.get('revives_done', 0)) # Gardé pour info sur GamePlayerStats
+            revives_done_from_payload = int(player_data.get('revives_done', 0))
             times_executed_enemy = int(player_data.get('times_executed_enemy', 0))
             times_got_executed = int(player_data.get('times_got_executed', 0))
             rage_quit = bool(player_data.get('rage_quit', False))
@@ -241,7 +256,7 @@ class EndGameAPIView(APIView):
                 'score_in_game': score
             }
             GamePlayerStats.objects.update_or_create(
-                game=game_instance, player=player_instance, # player_instance est un User
+                game=game_instance, player=player_instance,
                 defaults=stats_defaults
             )
         
@@ -270,16 +285,15 @@ class AllTimePlayerRankingView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        # CORRIGÉ: Filtrer sur User
         users_with_stats = User.objects.filter(game_stats__game__status='completed').distinct()
         player_rankings = []
-        for user_instance in users_with_stats: # Itérer sur User
+        for user_instance in users_with_stats:
             total_revives_done_by_player = ReviveEvent.objects.filter(
                 game__status='completed', 
-                reviver_player=user_instance # Filtrer par User
+                reviver_player=user_instance
             ).count()
 
-            stats = GamePlayerStats.objects.filter(player=user_instance, game__status='completed').aggregate( # Filtrer par User
+            stats = GamePlayerStats.objects.filter(player=user_instance, game__status='completed').aggregate(
                 total_score=Sum('score_in_game', default=0),
                 total_kills=Sum('kills', default=0),
                 total_deaths=Sum('deaths', default=0),
@@ -289,15 +303,15 @@ class AllTimePlayerRankingView(generics.ListAPIView):
                 total_times_redeployed=Sum('times_redeployed_by_teammate', default=0),
                 games_played=Count('game', distinct=True)
             )
-            mks_won = MasterkillEvent.objects.filter(winner=user_instance, status='completed').count() # winner est un User
+            mks_won = MasterkillEvent.objects.filter(winner=user_instance, status='completed').count()
             
             deaths_for_kd = stats['total_deaths'] if stats['total_deaths'] > 0 else 1
             kd_ratio = round((stats['total_kills'] or 0) / deaths_for_kd, 2)
             if stats['total_deaths'] == 0 and stats['total_kills'] > 0 : kd_ratio = stats['total_kills']
 
             player_data = {
-                'player_id': user_instance.id, # Utiliser User.id
-                'username': user_instance.username, # Utiliser User.username
+                'player_id': user_instance.id,
+                'username': user_instance.username,
                 'total_score': stats['total_score'], 'total_kills': stats['total_kills'],
                 'total_deaths': stats['total_deaths'], 'total_assists': stats['total_assists'],
                 'total_revives_done': total_revives_done_by_player,
@@ -317,7 +331,7 @@ class MasterkillGameScoresView(APIView):
         response_data = {
             'mk_id': mk_event.id, 'mk_name': mk_event.name, 
             'num_games_planned': mk_event.num_games_planned,
-            'participants': UserSerializer(mk_event.participants.all(), many=True).data, # Utiliser UserSerializer
+            'participants': UserSerializer(mk_event.participants.all(), many=True).data,
             'player_scores_per_game': {}
         }
         
@@ -325,12 +339,12 @@ class MasterkillGameScoresView(APIView):
         num_games_actually_completed = completed_games_instances.count()
         
         if num_games_actually_completed == 0:
-             for participant_user in mk_event.participants.all(): # Itérer sur User
+             for participant_user in mk_event.participants.all():
                 response_data['player_scores_per_game'][str(participant_user.id)] = []
              response_data['num_games_played'] = 0
              return Response(response_data)
 
-        for participant_user in mk_event.participants.all(): # Itérer sur User
+        for participant_user in mk_event.participants.all():
             user_id_str = str(participant_user.id)
             response_data['player_scores_per_game'][user_id_str] = []
             cumulative_score = 0
@@ -339,7 +353,7 @@ class MasterkillGameScoresView(APIView):
                 game_for_this_number = completed_games_instances.filter(game_number=i).first()
                 current_game_score_for_this_game_only = 0
                 if game_for_this_number:
-                    stat_entry = GamePlayerStats.objects.filter(game=game_for_this_number, player=participant_user).first() # Filtrer par User
+                    stat_entry = GamePlayerStats.objects.filter(game=game_for_this_number, player=participant_user).first()
                     if stat_entry:
                         current_game_score_for_this_game_only = stat_entry.score_in_game
                 
@@ -367,7 +381,7 @@ class ApplyBonusView(APIView):
         except ValueError:
             return Response({"error": "player_id et bonus_points doivent être des nombres valides."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            user_instance = User.objects.get(pk=player_id) # CORRIGÉ: User
+            user_instance = User.objects.get(pk=player_id)
             if user_instance not in mk_event.participants.all():
                 return Response({"error": "Cet utilisateur ne participe pas à cet événement."}, status=status.HTTP_400_BAD_REQUEST)
             
@@ -377,14 +391,14 @@ class ApplyBonusView(APIView):
                 defaults={'status': 'completed', 'spawn_location': 'BonusRoue', 'kill_multiplier': 1.0}
             )
             bonus_stat, created_stat = GamePlayerStats.objects.update_or_create(
-                game=bonus_game, player=user_instance, # CORRIGÉ: User
+                game=bonus_game, player=user_instance,
                 defaults={'score_in_game': bonus_points}
             )
             if not created_stat:
                 bonus_stat.score_in_game = F('score_in_game') + bonus_points
                 bonus_stat.save()
             return Response({"message": f"Bonus de {bonus_points} appliqué à {user_instance.username}."}, status=status.HTTP_200_OK)
-        except User.DoesNotExist: # CORRIGÉ: User
+        except User.DoesNotExist:
             return Response({"error": "Utilisateur non trouvé."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -414,10 +428,45 @@ class MasterkillEventCountView(APIView):
         count = MasterkillEvent.objects.count()
         return Response({'count': count})
 
-# La PlayerListView devient UserListView si Player n'est plus utilisé.
-# Si Player existe toujours pour autre chose, gardez-la.
-# Pour la sélection des participants, nous créons une vue qui liste les User.
-class UserListView(generics.ListAPIView): # Renommé pour refléter User
-    queryset = User.objects.filter(is_active=True).order_by('username') # Liste des utilisateurs actifs
-    serializer_class = UserSerializer # Utiliser UserSerializer
+class UserListView(generics.ListAPIView):
+    queryset = User.objects.filter(is_active=True).order_by('username')
+    serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+class UploadScreenshotView(APIView):
+    """
+    POST /api/games/<pk>/upload-screenshot/
+    Body (multipart) : file=<screenshot>
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes     = [MultiPartParser, FormParser]
+
+    @ratelimit(key='user', rate='5/m', block=True)
+    def post(self, request, pk):
+        game = get_object_or_404(Game, pk=pk)
+        upfile = request.FILES.get('file')
+        if not upfile:
+            return Response({"detail": "No file"}, 400)
+        if upfile.size > 6 * 2**20:
+            return Response({"detail": "File too large"}, 400)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            for chunk in upfile.chunks():
+                tmp.write(chunk)
+            local_path = tmp.name
+
+        players = extract(local_path)
+        os.unlink(local_path)              # nettoyage
+
+        for p in players:
+            user, _ = User.objects.get_or_create(username__iexact=p["gamertag"],
+                                                 defaults={"username": p["gamertag"]})
+            gps, _ = GamePlayerStats.objects.get_or_create(game=game, player=user)
+            gps.kills   = p["kills"]
+            gps.revives_done = p["revives"]
+            gps.save()
+
+        game.has_auto_stats = True
+        game.save(update_fields=['has_auto_stats'])
+
+        return Response({"players": players}, status=201)

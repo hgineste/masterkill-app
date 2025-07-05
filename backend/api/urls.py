@@ -24,4 +24,6 @@ urlpatterns = [
     path('users/me/', views.CurrentUserView.as_view(), name='current-user'),
     path('auth/register/', views.UserRegistrationView.as_view(), name='user-register'),
     path('users/list-for-participation/', views.UserListView.as_view(), name='user-list-for-participation'), 
+    path('games/<int:pk>/upload-screenshot/', views.UploadScreenshotView.as_view(),
+         name='game-upload-screenshot'),
 ]

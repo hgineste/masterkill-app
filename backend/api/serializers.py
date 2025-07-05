@@ -22,17 +22,18 @@ class GameSerializer(serializers.ModelSerializer):
     spawn_location = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     # NOUVEAU: Pour afficher le nom du chef d'escouade
     squad_leader_username = serializers.CharField(source='squad_leader.username', read_only=True, allow_null=True)
+    has_auto_stats  = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Game
         fields = [
             'id', 'masterkill_event', 'game_number', 'status', 
             'start_time', 'end_time', 'kill_multiplier', 'spawn_location',
-            'squad_leader', 'squad_leader_username' # Ajout de squad_leader (ID) et son username
+            'squad_leader', 'squad_leader_username', 'has_auto_stats' # Ajout de squad_leader (ID) et son username
         ]
         read_only_fields = [
             'id', 'masterkill_event', 'start_time', 'end_time', 
-            'kill_multiplier', 'squad_leader_username' 
+            'kill_multiplier', 'squad_leader_username', 'has_auto_stats' 
             # squad_leader (ID) peut être défini lors de la création/maj d'une partie
         ]
 
