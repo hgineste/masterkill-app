@@ -4,6 +4,7 @@ import { useRoute, useRouter, RouterLink } from 'vue-router';
 import apiClient from '@/services/apiClient';
 import logoWarzone from '@/assets/images/logo-warzone.png';
 import mapWarzoneImage from '@/assets/images/map_warzone_placeholder.jpg';
+import UploadScreenshot from '@/components/UploadScreenshot.vue'
 
 import { Line } from 'vue-chartjs';
 import {
@@ -571,6 +572,19 @@ const detailedPlayerStats = computed(() => {
     };
   }).sort((a,b) => b.total_score_from_games - a.total_score_from_games);
 });
+
+function mergeOcr (players) {
+  players.forEach(p => {
+    // cherche la ligne existante ou crée-la
+    let row = rows.value.find(r => r.username.toLowerCase() === p.gamertag.toLowerCase())
+    if (!row) {
+      row = { username: p.gamertag, kills: 0, revives: 0, redeploy: 0, gulag: 0 }
+      rows.value.push(row)
+    }
+    row.kills   = p.kills
+    row.revives = p.revives
+  })
+}
 </script>
 
 <template>
@@ -586,6 +600,11 @@ const detailedPlayerStats = computed(() => {
       <div v-if="isLoading && !masterkillEvent" class="loading">Chargement des détails...</div>
       <div v-else-if="error" class="error-message">{{ error }}</div>
       <div v-else-if="masterkillEvent" class="mk-details-content">
+            <div v-if="isGameCurrentlyInProgress" class="game-input-section">
+        <UploadScreenshot
+          :game-id="activeGame?.id"
+          @statsReady="mergeOcr"
+        />
 
         <div class="mk-info-header">
           <p>
