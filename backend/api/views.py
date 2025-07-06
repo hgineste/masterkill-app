@@ -12,7 +12,7 @@ from PIL import Image
 import pytesseract
 
 from rest_framework.parsers import MultiPartParser, FormParser
-from ratelimit.decorators import ratelimit
+#from ratelimit.decorators import ratelimit
 import os, tempfile
 from .ocr import extract
 
