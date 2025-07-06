@@ -1,35 +1,66 @@
 <script setup>
 import { ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { uploadScreenshot } from '@/services/gameApi'
 
-const props = defineProps({ gameId: Number })
-const emit  = defineEmits(['statsReady'])
+const route = useRoute()                         //  /game/:gameId?/upload
+const gameId = route.params.gameId || null       // → si tu appelles sans paramètre, mets-le en dur
 
-const file = ref(null)
-const loading = ref(false)
-const error = ref(null)
+const file       = ref(null)
+const isSending  = ref(false)
+const errorMsg   = ref(null)
+const ocrResults = ref([])                       // [{ gamertag, kills, revives }, …]
+
+function handleFileChange (e) {
+  errorMsg.value  = null
+  ocrResults.value = []
+  file.value       = e.target.files[0] || null
+}
 
 async function send () {
-  if (!file.value) return
-  loading.value = true
-  error.value = null
+  if (!file.value) { errorMsg.value = 'Choisis d’abord une image.'; return }
+  if (!gameId)     { errorMsg.value = 'gameId manquant dans l’URL.'; return }
+
+  isSending.value = true
+  errorMsg.value  = null
   try {
-    const players = await uploadScreenshot(props.gameId, file.value)
-    emit('statsReady', players)
-  } catch (e) {
-    error.value = e.response?.data?.detail || 'Erreur OCR'
+    const data = await uploadScreenshot(gameId, file.value)
+    ocrResults.value = data           // assumé : tableau retourné par l’API
+  } catch (err) {
+    errorMsg.value = err.response?.data?.detail || err.message
   } finally {
-    loading.value = false
+    isSending.value = false
   }
 }
 </script>
 
 <template>
-  <div class="flex items-center gap-2 my-3">
-    <input type="file" accept="image/*" @change="e => file.value = e.target.files[0]" />
-    <button class="btn btn-primary" :disabled="!file || loading" @click="send">
-      {{ loading ? 'Analyse…' : 'Analyser' }}
-    </button>
-    <span v-if="error" class="text-red-500 text-sm">{{ error }}</span>
+  <div class="upload-page">
+    <h1>Upload screenshot – OCR</h1>
+
+    <input type="file" accept="image/*" @change="handleFileChange" />
+    <button :disabled="isSending" @click="send">Envoyer</button>
+
+    <p v-if="isSending">Envoi / OCR en cours…</p>
+    <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+
+    <div v-if="ocrResults.length">
+      <h2>Résultats OCR</h2>
+      <table>
+        <thead><tr><th>Joueur</th><th>Kills</th><th>Réas</th></tr></thead>
+        <tbody>
+          <tr v-for="r in ocrResults" :key="r.gamertag">
+            <td>{{ r.gamertag }}</td><td>{{ r.kills }}</td><td>{{ r.revives }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.upload-page { padding: 30px; max-width: 500px; margin:auto }
+.error       { color: #c00 }
+table { border-collapse: collapse; width:100% }
+td,th{ border:1px solid #666; padding:4px; text-align:center }
+</style>

@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Sum, Count, Q, F, FloatField, Case, When
 from rest_framework.permissions import IsAuthenticated
 import random
+from PIL import Image
+import pytesseract
 
 from rest_framework.parsers import MultiPartParser, FormParser
 from ratelimit.decorators import ratelimit
@@ -470,3 +472,36 @@ class UploadScreenshotView(APIView):
         game.save(update_fields=['has_auto_stats'])
 
         return Response({"players": players}, status=201)
+
+class GameScreenshotOCRView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        game = get_object_or_404(Game, pk=pk)
+
+        img_file = request.FILES.get('file')
+        if not img_file:
+            return Response({'detail': 'Pas de fichier.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            image = Image.open(img_file)
+            raw_text = pytesseract.image_to_string(image, lang='eng')   # langue à ajuster
+            # ————————————————
+            # ✂️  Ici : parse raw_text pour extraire {gamertag,kills,revives}
+            # Exemple bidon :
+            players = []
+            for line in raw_text.splitlines():
+                if not line.strip():
+                    continue
+                # supposons "Gamertag Kills Revives"
+                try:
+                    g,k,r = line.split()
+                    players.append({"gamertag": g, "kills": int(k), "revives": int(r)})
+                except ValueError:
+                    pass
+            # ————————————————
+            return Response({"players": players}, status=200)
+        except Exception as exc:
+            return Response({'detail': f'OCR error: {exc}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)

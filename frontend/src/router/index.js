@@ -7,6 +7,7 @@ import MKDetailView from '../views/MKDetailView.vue';
 import MKResultsView from '../views/MKResultsView.vue';
 import UserLoginView from '../views/UserLoginView.vue';
 import UserRegisterView from '../views/UserRegisterView.vue';
+import UploadScreenshot from '../views/UploadScreenshot.vue';
 
 const PlayerProfileView = { template: '<div class="placeholder-view"><h1>Profil Joueur</h1><p>(Contenu à venir)</p><router-link to="/">Retour Accueil</router-link></div>' };
 const ActiveGameView = { template: '<div class="placeholder-view"><h1>Partie en Cours</h1><p>(Interface de saisie à venir)</p><router-link to="/">Retour Accueil</router-link></div>' };
@@ -70,6 +71,19 @@ const routes = [
     props: true,
     meta: { requiresAuth: true }
   },
+  {
+    path: '/upload',
+    name: 'upload-screenshot',
+    component: UploadScreenshot,
+    meta: { requiresAuth: true }         
+  },
+{
+  path: '/game/:gameId/upload', 
+  name: 'upload-screenshot-game',
+  component: UploadScreenshot,
+  props: true,
+  meta: { requiresAuth: true }
+},
 ];
 
 const router = createRouter({
